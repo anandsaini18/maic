@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 def _model_local_path(model_id: str) -> Path:
     """
-    Turn a HuggingFace model ID like 'mlx-community/Phi-3.5-mini-instruct-4bit'
-    into a local folder path like '~/models/mlx-community--Phi-3.5-mini-instruct-4bit/'.
+    Convert HuggingFace model ID to a local path, replacing '/' with '--'.
 
-    Why '--' instead of '/'? A slash would create nested sub-folders, which makes
-    listing and deleting models more fiddly. Keeping every model as a single flat
-    folder under ~/models/ is simpler.
+    Example: 'mlx-community/Phi-3.5-mini-instruct-4bit' → '~/models/mlx-community--Phi-3.5-mini-instruct-4bit/'
+
+    Using '--' keeps every model in a flat folder (simpler management) rather than
+    creating nested subdirectories.
     """
     models_dir = Path(settings.models_dir).expanduser().resolve()
     return models_dir / model_id.replace("/", "--")
@@ -28,24 +28,21 @@ def _model_local_path(model_id: str) -> Path:
 
 def _ensure_model_downloaded(model_id: str, local_path: Path) -> None:
     """
-    Make sure the model's weight files exist locally before we try to load them.
+    Download model weights from HuggingFace if not already cached locally.
 
-    On first run: downloads everything from HuggingFace into local_path using
-    hf_transfer — a Rust-based downloader that's 10-100x faster than the
-    default Python one. We skip *.bin (PyTorch format) because MLX only needs
-    the *.safetensors files.
+    First run: Uses hf_transfer (Rust-based, 10-100× faster) to download weights,
+    skipping PyTorch (.bin) files since MLX only needs .safetensors.
 
-    On subsequent runs: if we find any .safetensors or .npz files already there,
-    we skip the download entirely. This means you can delete your .env file or
-    change settings without losing the weights you already downloaded.
+    Subsequent runs: Detects any cached .safetensors or .npz files and skips
+    download, allowing config changes without re-downloading.
     """
-    # Presence check: any .safetensors or .npz file = weights are present
+    # Check for cached weights (skip download if found)
     weight_files = list(local_path.glob("*.safetensors")) + list(local_path.glob("*.npz"))
     if weight_files:
         logger.info("Model found locally at '%s' — skipping download.", local_path)
         return
 
-    # Enable hf_transfer for 10-100× faster downloads (Rust-based)
+    # Enable Rust-based downloader for 10-100× faster transfers
     os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
 
     from huggingface_hub import snapshot_download
@@ -59,31 +56,33 @@ def _ensure_model_downloaded(model_id: str, local_path: Path) -> None:
     snapshot_download(
         repo_id=model_id,
         local_dir=str(local_path),
-        ignore_patterns=["*.bin", "original/*"],  # skip pytorch weights; keep mlx/safetensors
+        ignore_patterns=["*.bin", "original/*"],  # Skip PyTorch weights; MLX uses only safetensors
     )
     logger.info("Download complete: %s", local_path)
 
 
-# ── Known model RAM requirements (GiB) ───────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Known model sizes (GiB) — used for RAM feasibility checks and UI suggestions
+# ─────────────────────────────────────────────────────────────────────────────
 
 KNOWN_MODEL_SIZES: dict[str, float] = {
-    # No HuggingFace token required
+    # Open models (no token required)
     "mlx-community/SmolLM2-1.7B-Instruct-4bit": 1.0,
     "mlx-community/Phi-3.5-mini-instruct-4bit": 2.3,       # ← default
     "mlx-community/Qwen3-4B-Instruct-2507-4bit": 2.5,
     "mlx-community/gemma-3-4b-it-4bit": 2.6,
     "mlx-community/Mistral-7B-Instruct-v0.3-4bit": 4.0,
     "mlx-community/Qwen3-8B-4bit": 5.0,
-    # Token required (Meta license — accept at hf.co/meta-llama first)
+    # Gated models (Meta license — accept at hf.co/meta-llama first)
     "mlx-community/Llama-3.2-1B-Instruct-4bit": 0.7,
     "mlx-community/Llama-3.2-3B-Instruct-4bit": 1.8,
     "mlx-community/Llama-3.1-8B-Instruct-4bit": 4.9,
     "mlx-community/Llama-3.3-70B-Instruct-4bit": 40.0,
-    # Not feasible on any MacBook
+    # Unfeasible on any MacBook (included for reference)
     "mlx-community/Kimi-K2.5": 658.0,
 }
 
-# Models that require a HuggingFace token (gated / license-restricted)
+# Models requiring HuggingFace authentication (gated behind license agreements)
 TOKEN_REQUIRED_MODELS: frozenset[str] = frozenset({
     "mlx-community/Llama-3.2-1B-Instruct-4bit",
     "mlx-community/Llama-3.2-3B-Instruct-4bit",
@@ -91,7 +90,7 @@ TOKEN_REQUIRED_MODELS: frozenset[str] = frozenset({
     "mlx-community/Llama-3.3-70B-Instruct-4bit",
 })
 
-# Models feasible on a given RAM tier (GiB)
+# Sorted by size for easy lookup by RAM tier
 FEASIBLE_BY_RAM: list[tuple[float, str]] = sorted(
     KNOWN_MODEL_SIZES.items(), key=lambda x: x[1]
 )
@@ -196,21 +195,17 @@ class ModelManager:
 
     def _check_ram(self, model_id: str) -> None:
         """
-        Refuse to load a model that would exceed safe memory usage on this machine.
+        Fail early if model needs more than 80% of available RAM.
 
-        We look up the model's known RAM footprint in KNOWN_MODEL_SIZES. If it
-        needs more than 80% of available unified memory, we raise ModelTooLargeError
-        and suggest smaller alternatives from the same table.
-
-        If the model isn't in our table we let mlx_lm try anyway — it will fail
-        with its own error if the machine truly can't handle it.
+        Looks up model size in KNOWN_MODEL_SIZES and suggests feasible alternatives.
+        Unknown models skip this check and let MLX fail later if needed.
         """
         required_gb = KNOWN_MODEL_SIZES.get(model_id)
         if required_gb is None:
-            return  # unknown model — let mlx_lm decide
+            return  # Model size unknown; let MLX attempt to load it
 
         available_gb = psutil.virtual_memory().total / (1024 ** 3)
-        safe_limit = available_gb * 0.8
+        safe_limit = available_gb * 0.8  # Use only 80% to leave headroom for system
 
         if required_gb > safe_limit:
             feasible = [
@@ -229,40 +224,29 @@ class ModelManager:
 
     def _derive_stop_strings(self) -> frozenset[str]:
         """
-        Figure out which text sequences mean "the model is done talking" — for
-        whatever model is currently loaded, without any model-specific hardcoding.
+        Auto-detect end-of-generation markers specific to the loaded model.
 
-        Why is this needed? Different models use different special tokens to end
-        a turn (Phi uses <|end|>, Qwen uses <|im_end|>, Mistral uses </s>). The
-        tokenizer knows its end-of-document token, but not always its
-        end-of-turn token. If we miss that token, the model keeps generating
-        garbage after its answer.
+        Problem: Different models signal completion differently (Phi: <|end|>,
+        Qwen: <|im_end|>, Mistral: </s>). Missing these causes garbage output.
 
-        Two discovery methods:
-        1. Read eos_token_ids directly from the tokenizer — these are the tokens
-           the model uses to signal "end of document". Decode each one to text.
-        2. Probe the chat template: apply it to a known sentinel string
-           (\x01\x02\x03 — chosen because it won't appear in any real template)
-           and look at what tokens the model appends after the sentinel. Those
-           are the end-of-turn tokens. We add them to the stop list AND register
-           them with the tokenizer so mlx_lm's built-in EOS check also catches them.
+        Solution: Extract stop tokens via two methods:
+          1. Decode known eos_token_ids from tokenizer
+          2. Probe chat template with sentinel string to find appended tokens
 
-        Returns a frozenset of strings. During generation we scan the output
-        buffer for any of these strings and cut off immediately when found.
+        These are used during generation to truncate output immediately when detected.
         """
         stop: set[str] = set()
 
-        # Source 1 — eos_token_ids from model config
+        # Method 1: Extract from tokenizer's known EOS token IDs
         for eid in self._tokenizer.eos_token_ids:
             s = self._tokenizer.decode([eid]).strip()
             if s:
                 stop.add(s)
 
-        # Source 2 — probe the chat template with a sentinel string to find
-        # which tokens the model appends after the assistant's text.
-        # Works for Phi (<|end|>), Qwen (<|im_end|>), Mistral (</s>), etc.
+        # Method 2: Probe chat template to find tokens appended after content
+        # (Catches model-specific markers like <|end|>, <|im_end|>, </s>)
         try:
-            SENTINEL = "\x01\x02\x03"  # unlikely to appear in any template
+            SENTINEL = "\x01\x02\x03"  # Unlikely to appear in real templates
             probe_ids: list[int] = self._tokenizer.apply_chat_template(
                 [{"role": "assistant", "content": SENTINEL}],
                 tokenize=True,
@@ -271,13 +255,12 @@ class ModelManager:
             sentinel_ids = self._tokenizer.encode(SENTINEL, add_special_tokens=False)
             for i in range(len(probe_ids)):
                 if probe_ids[i : i + len(sentinel_ids)] == sentinel_ids:
-                    # Everything after the sentinel is an end-of-turn token sequence
+                    # Tokens after sentinel are the model's end-of-turn markers
                     for eid in probe_ids[i + len(sentinel_ids) :]:
                         s = self._tokenizer.decode([eid]).strip()
                         if s:
                             stop.add(s)
-                            # Also register with the tokenizer so stream_generate
-                            # can catch it at the token level (Level 1)
+                            # Register with tokenizer for native token-level detection
                             self._tokenizer.add_eos_token(str(eid))
                     break
         except Exception as exc:
@@ -291,13 +274,9 @@ class ModelManager:
         """
         Download (if needed) and load a model into memory.
 
-        Steps:
-        1. Check RAM — refuse early with a helpful message if the model is too large.
-        2. Download weights to ~/models/<model-slug>/ if not already there.
-        3. Load weights from disk into MLX (Apple Silicon GPU memory).
-        4. Derive stop strings so generation knows when to stop.
+        Process: RAM check → Download → Load into MLX → Derive stop markers
 
-        Raises ModelLoadError if download or loading fails, with a tip on how to fix it.
+        Raises ModelLoadError with troubleshooting hints if any step fails.
         """
         model_id = model_id or settings.model_id
         self._check_ram(model_id)
@@ -315,8 +294,8 @@ class ModelManager:
 
         logger.info("Loading model from '%s' …", local_path)
         try:
-            import mlx_lm  # lazy import — only needed at load time
-            # Load from local path — no network call needed after first download
+            import mlx_lm  # Lazy import; only needed at load time
+            # Load from local path (offline after first download)
             self._model, self._tokenizer = mlx_lm.load(str(local_path))
             self._model_id = model_id
             self._stop_strings = self._derive_stop_strings()
@@ -365,11 +344,10 @@ class ModelManager:
         Pass default_strategy for normal use, greedy_strategy for deterministic output.
         """
         import mlx.core as mx
-        import mlx_lm  # lazy import
+        import mlx_lm  # Lazy import
 
-        # Tokenize with the chat template to get token IDs directly.
-        # This ensures special tokens (e.g. <|end|>) are encoded as their
-        # correct IDs and stream_generate can detect EOS and stop properly.
+        # Apply chat template and tokenize messages in one step
+        # Ensures special tokens are properly encoded for EOS detection
         token_ids: list[int] = self._tokenizer.apply_chat_template(
             messages,
             tokenize=True,
@@ -390,15 +368,16 @@ class ModelManager:
             **gen_kwargs,
         )
 
-        # ── Stop-aware observed generator (three levels, model-agnostic) ────────
+        # ─────────────────────────────────────────────────────────────────────
+        # Stop-aware wrapper with three detection layers (see _observed below)
+        # ─────────────────────────────────────────────────────────────────────
         stop_strings = self._stop_strings
-        # We keep a rolling suffix buffer that's at least as long as the longest
-        # stop string, so a stop string that spans two chunks is still caught.
+        # Rolling buffer to catch stop strings spanning chunk boundaries
         max_suffix = max((len(s) for s in stop_strings), default=0)
 
         def _observed() -> object:
             """
-            Inner generator that wraps mlx_lm's raw stream with three stop checks.
+            Three-layer stop detection: native EOS → length limit → text patterns.
 
             Why three levels? Because different models (and temperatures) fail in
             different ways, and we can't rely on just one mechanism:
@@ -421,12 +400,12 @@ class ModelManager:
             length of the longest stop string. This prevents us from yielding text
             that might be the start of a stop string that hasn't fully arrived yet.
             """
-            suffix = ""  # rolling buffer to catch stop strings that span chunks
+            suffix = ""  # Accumulates text to detect stop strings
             try:
                 for token_response in raw_gen:
                     suffix += token_response.text
 
-                    # Level 1 — stream_generate detected EOS token natively
+                    # Layer 1: MLX detected native EOS token
                     if token_response.finish_reason == "stop":
                         clean = suffix
                         for s in stop_strings:
@@ -436,13 +415,13 @@ class ModelManager:
                             yield clean
                         break
 
-                    # Level 2 — max_tokens reached; yield what we have
+                    # Layer 2: Hit max_tokens limit
                     if token_response.finish_reason == "length":
                         self._notify_token(suffix)
                         yield suffix
                         break
 
-                    # Level 3 — stop string leaked as plain text in the buffer
+                    # Layer 3: Stop string found in accumulated text
                     stop_hit = next((s for s in stop_strings if s in suffix), None)
                     if stop_hit:
                         clean = suffix.split(stop_hit)[0]
@@ -451,7 +430,7 @@ class ModelManager:
                             yield clean
                         break
 
-                    # Normal token — yield only what's safely before the suffix window
+                    # Normal flow: yield safe text, retain potential stop string prefix
                     safe = suffix[:-max_suffix] if max_suffix else suffix
                     if safe:
                         self._notify_token(safe)
@@ -464,9 +443,8 @@ class ModelManager:
 
         stream = TokenStream(_observed())
 
-        # Patch __next__ so we can fire on_complete exactly once, when the
-        # caller drains the last token. We can't do this inside _observed because
-        # that generator doesn't have access to the TokenStream's stats.
+        # Intercept the final __next__ to fire on_complete with stats
+        # (Can't do this in _observed since it lacks access to TokenStream stats)
         original_next = stream.__next__
 
         def _completing_next() -> str:
@@ -494,8 +472,7 @@ class ModelManager:
 
     def delete_model(self, model_id: str) -> None:
         """
-        Delete a downloaded model's weight files from disk.
-        Refuses to delete the currently loaded model — unload it first.
+        Delete model weights from disk (cannot delete currently loaded model).
         """
         if self._model_id == model_id:
             raise RuntimeError(f"Cannot delete '{model_id}' — it is currently loaded.")
@@ -512,7 +489,7 @@ class ModelManager:
         _ensure_model_downloaded(model_id, local_path)
 
     def disk_size_gb(self, model_id: str) -> float | None:
-        """Return the actual disk size of a downloaded model in GB, or None if not downloaded."""
+        """Return disk size in GB of a downloaded model, or None if not cached."""
         local_path = _model_local_path(model_id)
         if not local_path.exists():
             return None
@@ -520,6 +497,5 @@ class ModelManager:
         return round(total / (1024 ** 3), 2)
 
 
-# Module-level singleton — the whole app shares one ModelManager instance.
-# Routes and other modules import this directly: from app.core.model_manager import model_manager
+# Module-level singleton instance used throughout the app
 model_manager = ModelManager()

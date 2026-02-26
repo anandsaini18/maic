@@ -2,6 +2,8 @@
 
 **Maic** is a high-performance local language model server specifically optimized for Apple Silicon (M1/M2/M3). It provides an **OpenAI-compatible API** and a sleek, modern web-based chat interface, allowing you to run powerful models like Llama 3, Mistral, and Phi-3 entirely on your own hardware with maximum efficiency.
 
+Maic is for users who want privacy, zero cost, and local control — tinkerers, developers who want an OpenAI-compatible local API, privacy-conscious users, and anyone experimenting with open-source models on Apple Silicon. Its unique value is the MLX-optimized inference server with an API other tools can consume.
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.9+-blue.svg)
 ![MLX](https://img.shields.io/badge/optimization-MLX-orange.svg)
