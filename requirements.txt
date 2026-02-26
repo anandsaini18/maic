@@ -1,0 +1,7 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+mlx-lm>=0.21.0
+pydantic-settings>=2.3.0
+psutil>=6.0.0
+huggingface_hub>=0.23.0
+hf-transfer>=0.1.8
