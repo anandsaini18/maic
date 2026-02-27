@@ -6,9 +6,11 @@ interface Props {
   hasMessages: boolean;
   theme: Theme;
   onToggleTheme: () => void;
+  inspectorOpen: boolean;
+  onToggleInspector: () => void;
 }
 
-export default function ChatHeader({ activeModel, onClear, hasMessages, theme, onToggleTheme }: Props) {
+export default function ChatHeader({ activeModel, onClear, hasMessages, theme, onToggleTheme, inspectorOpen, onToggleInspector }: Props) {
   const badge = activeModel ? activeModel.split("/").pop() : null;
 
   return (
@@ -83,6 +85,18 @@ export default function ChatHeader({ activeModel, onClear, hasMessages, theme, o
             <span>no model</span>
           </div>
         )}
+
+        {/* Inspector panel toggle */}
+        <button
+          onClick={onToggleInspector}
+          className="hidden md:flex text-warm-muted hover:text-amber transition-colors duration-200 p-1.5 rounded-xs hover:bg-warm-card"
+          title={inspectorOpen ? "Collapse panel" : "Expand panel"}
+        >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <line x1="15" y1="3" x2="15" y2="21" />
+          </svg>
+        </button>
       </div>
     </div>
   );

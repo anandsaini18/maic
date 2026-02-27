@@ -55,6 +55,8 @@ export default function App() {
         onClear={clearConversation}
         theme={theme}
         onToggleTheme={toggleTheme}
+        inspectorOpen={inspectorOpen}
+        onToggleInspector={() => setInspectorOpen((o) => !o)}
       />
 
       <InspectorPanel
@@ -68,7 +70,6 @@ export default function App() {
         onDownload={download}
         onDelete={remove}
         isOpen={inspectorOpen}
-        onToggle={() => setInspectorOpen((o) => !o)}
         tpmHistory={tpmHistory}
       />
 

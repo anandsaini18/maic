@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import type { UIMessage } from "../../api/types";
-import { highlightCodeBlocks } from "../../lib/markdown";
+import { addCopyButtons, highlightCodeBlocks } from "../../lib/markdown";
 import TypingIndicator from "./TypingIndicator";
 
 interface Props {
@@ -14,6 +14,7 @@ export default function Message({ message: m }: Props) {
   useEffect(() => {
     if (m.html && contentRef.current) {
       highlightCodeBlocks(contentRef.current);
+      addCopyButtons(contentRef.current);
     }
   }, [m.html]);
 

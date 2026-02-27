@@ -66,7 +66,7 @@ export default function ModelOption({
           {m.downloaded ? (
             <>
               <button
-                className="px-2 py-1 rounded-xs border border-amber-dim bg-amber-dim text-amber font-display text-[10px] font-medium hover:bg-amber-glow active:scale-95 transition-all duration-[250ms] ease-spring"
+                className="px-2 py-1.5 rounded-xs border border-amber-dim bg-amber-dim text-amber hover:bg-amber-glow active:scale-95 focus-visible:ring-2 focus-visible:ring-amber/40 focus-visible:outline-none transition-all duration-[250ms] ease-spring"
                 onClick={(e) => {
                   e.stopPropagation();
                   onLoad(m.id);
@@ -74,17 +74,17 @@ export default function ModelOption({
                 }}
                 title="Activate"
               >
-                ⚡
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>
               </button>
               <button
-                className="px-2 py-1 rounded-xs border border-red-dim text-red font-display text-[10px] font-medium hover:bg-red-dim active:scale-95 transition-all duration-[250ms] ease-spring"
+                className="px-2 py-1.5 rounded-xs border border-red-dim text-red hover:bg-red-dim active:scale-95 focus-visible:ring-2 focus-visible:ring-red/40 focus-visible:outline-none transition-all duration-[250ms] ease-spring"
                 onClick={(e) => {
                   e.stopPropagation();
                   onDelete(m.id);
                 }}
                 title="Delete"
               >
-                🗑
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
               </button>
             </>
           ) : m.downloading ? (
@@ -96,14 +96,14 @@ export default function ModelOption({
             </button>
           ) : (
             <button
-              className="px-2 py-1 rounded-xs border border-amber-dim bg-amber-dim text-amber font-display text-[10px] font-medium hover:bg-amber-glow active:scale-95 transition-all duration-[250ms] ease-spring"
+              className="px-2 py-1.5 rounded-xs border border-amber-dim bg-amber-dim text-amber hover:bg-amber-glow active:scale-95 focus-visible:ring-2 focus-visible:ring-amber/40 focus-visible:outline-none transition-all duration-[250ms] ease-spring"
               onClick={(e) => {
                 e.stopPropagation();
                 onDownload(m.id);
               }}
               title="Download"
             >
-              ⬇
+              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
             </button>
           )}
         </div>

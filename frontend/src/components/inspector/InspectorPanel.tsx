@@ -16,7 +16,6 @@ interface Props {
   onDownload: (id: string) => void;
   onDelete: (id: string) => void;
   isOpen: boolean;
-  onToggle: () => void;
   tpmHistory: TpmPoint[];
 }
 
@@ -31,33 +30,10 @@ export default function InspectorPanel({
   onDownload,
   onDelete,
   isOpen,
-  onToggle,
   tpmHistory,
 }: Props) {
   return (
     <>
-      {/* Toggle button — always visible on md+ */}
-      <button
-        onClick={onToggle}
-        className="hidden md:flex fixed top-3 right-3 z-50 items-center justify-center w-8 h-8 rounded-md bg-warm-card border border-warm-border text-warm-muted hover:text-warm-text hover:border-amber transition-colors duration-200"
-        title={isOpen ? "Collapse panel" : "Expand panel"}
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`transition-transform duration-300 ${isOpen ? "rotate-0" : "rotate-180"}`}
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
-      </button>
-
       {/* Panel */}
       <div
         className={`hidden md:flex h-screen overflow-y-auto flex-col bg-warm-bg/75 backdrop-blur-[16px] border-l border-warm-border transition-all duration-300 ${

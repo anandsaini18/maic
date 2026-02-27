@@ -33,7 +33,7 @@ export async function loadModel(modelId: string): Promise<void> {
 }
 
 export async function deleteModel(modelId: string): Promise<void> {
-  const res = await fetch(`${API}/v1/models/${modelId}`, {
+  const res = await fetch(`${API}/v1/models/${encodeURIComponent(modelId)}`, {
     method: "DELETE",
   });
   if (!res.ok) {

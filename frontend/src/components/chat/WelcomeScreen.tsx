@@ -67,7 +67,7 @@ export default function WelcomeScreen({ onInsert }: Props) {
           <button
             key={s.label}
             onClick={() => onInsert(s.prompt)}
-            className="group flex items-center gap-3 bg-warm-card border border-warm-border rounded-sm px-5 py-3.5 cursor-pointer transition-all duration-300 ease-smooth hover:border-amber/30 hover:bg-warm-card/80 hover:shadow-[0_0_20px_rgba(212,160,83,0.06)] active:scale-[0.98]"
+            className="group flex items-center gap-3 bg-warm-card border border-warm-border rounded-sm px-5 py-3.5 cursor-pointer transition-all duration-300 ease-smooth hover:border-amber/30 hover:bg-warm-card/80 hover:shadow-[0_0_20px_rgba(212,160,83,0.06)] active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-amber/40 focus-visible:outline-none"
           >
             <span className="text-warm-muted group-hover:text-amber transition-colors duration-300">
               {s.icon}

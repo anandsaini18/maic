@@ -15,6 +15,8 @@ interface Props {
   onClear: () => void;
   theme: Theme;
   onToggleTheme: () => void;
+  inspectorOpen: boolean;
+  onToggleInspector: () => void;
 }
 
 export default function ChatPanel({
@@ -26,6 +28,8 @@ export default function ChatPanel({
   onClear,
   theme,
   onToggleTheme,
+  inspectorOpen,
+  onToggleInspector,
 }: Props) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -45,7 +49,7 @@ export default function ChatPanel({
 
   return (
     <div className="flex flex-col h-screen border-r border-warm-border">
-      <ChatHeader activeModel={activeModel} onClear={onClear} hasMessages={messages.length > 0} theme={theme} onToggleTheme={onToggleTheme} />
+      <ChatHeader activeModel={activeModel} onClear={onClear} hasMessages={messages.length > 0} theme={theme} onToggleTheme={onToggleTheme} inspectorOpen={inspectorOpen} onToggleInspector={onToggleInspector} />
       <MessageList messages={messages} onInsertPrompt={handleInsertPrompt} />
       <ChatInput
         isGenerating={isGenerating}

@@ -8,50 +8,50 @@
 
 :root {
   /* backgrounds */
-  --bg-primary: #F2EDE6;
-  --bg-secondary: #EBE5DC;
-  --bg-tertiary: #E3DDD3;
-  --bg-card: rgba(255, 255, 255, 0.5);
-  --bg-hover: #DDD7CC;
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F9FAFB;
+  --bg-tertiary: #F3F4F6;
+  --bg-card: rgba(255, 255, 255, 0.7);
+  --bg-hover: #F0F1F3;
 
   /* borders */
-  --border: #E5DFD6;
-  --border-subtle: #EDE8E0;
+  --border: #E5E7EB;
+  --border-subtle: #F0F1F3;
 
   /* text */
-  --txt-primary: #1A1410;
-  --txt-secondary: #6B6058;
-  --txt-muted: #9E9488;
+  --txt-primary: #111827;
+  --txt-secondary: #6B7280;
+  --txt-muted: #9CA3AF;
 
   /* warm surfaces */
-  --warm-bg: #F7F4EF;
+  --warm-bg: #FAFAFA;
   --warm-card: #FFFFFF;
-  --warm-border: #E5DFD6;
-  --warm-border-hover: #D4CCC0;
-  --warm-text: #2C2418;
-  --warm-muted: #8B7D6E;
+  --warm-border: #E5E7EB;
+  --warm-border-hover: #D1D5DB;
+  --warm-text: #1F2937;
+  --warm-muted: #6B7280;
 
   /* accent — amber */
   --amber: #B8862D;
-  --amber-dim: rgba(184, 134, 45, 0.10);
-  --amber-glow: rgba(184, 134, 45, 0.18);
-  --amber-muted: #9E7B3C;
+  --amber-dim: rgba(184, 134, 45, 0.08);
+  --amber-glow: rgba(184, 134, 45, 0.15);
+  --amber-muted: #92702E;
   --amber-light: #C99A3C;
 
   /* semantic */
-  --green: #2D9F5C;
-  --green-dim: rgba(45, 159, 92, 0.12);
-  --red: #DC3E52;
-  --red-dim: rgba(220, 62, 82, 0.10);
+  --green: #16A34A;
+  --green-dim: rgba(22, 163, 74, 0.10);
+  --red: #DC2626;
+  --red-dim: rgba(220, 38, 38, 0.08);
 
   /* glass */
-  --glass-warm-bg: rgba(247, 244, 239, 0.75);
+  --glass-warm-bg: rgba(255, 255, 255, 0.80);
   --glass-warm-border: rgba(184, 134, 45, 0.08);
 
   /* code */
-  --code-bg: #F0EBE3;
-  --code-border: #E5DFD6;
-  --code-text: #2C2418;
+  --code-bg: #F6F8FA;
+  --code-border: #E5E7EB;
+  --code-text: #1F2937;
   --code-inline: #B8862D;
 
   /* hljs */
@@ -69,29 +69,29 @@
 
   /* prose */
   --blockquote-border: rgba(184, 134, 45, 0.25);
-  --blockquote-text: #8B7D6E;
-  --strong-color: #9E7B3C;
-  --em-color: #8B7D6E;
-  --heading-color: #2C2418;
+  --blockquote-text: #6B7280;
+  --strong-color: #92702E;
+  --em-color: #6B7280;
+  --heading-color: #111827;
   --link-color: #B8862D;
   --link-underline: rgba(184, 134, 45, 0.3);
-  --hr-color: #E5DFD6;
-  --table-border: #E5DFD6;
-  --table-header-bg: #F0EBE3;
-  --table-header-text: #8B7D6E;
+  --hr-color: #E5E7EB;
+  --table-border: #E5E7EB;
+  --table-header-bg: #F9FAFB;
+  --table-header-text: #6B7280;
 
   /* scrollbar */
-  --scrollbar-thumb: #D4CCC0;
-  --scrollbar-thumb-hover: #BDB4A6;
+  --scrollbar-thumb: #D1D5DB;
+  --scrollbar-thumb-hover: #9CA3AF;
 
   /* slider */
-  --slider-track: #E5DFD6;
+  --slider-track: #E5E7EB;
   --slider-thumb: #B8862D;
-  --slider-thumb-border: #F7F4EF;
+  --slider-thumb-border: #FFFFFF;
   --slider-thumb-glow: rgba(184, 134, 45, 0.33);
 
   /* noise */
-  --noise-opacity: 0.015;
+  --noise-opacity: 0.01;
 
   color-scheme: light;
 }
@@ -259,8 +259,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   background: var(--code-bg);
   border: 1px solid var(--code-border);
   border-radius: 8px;
-  padding: 14px 16px;
-  overflow-x: auto;
+  padding: 0;
+  overflow: hidden;
   margin: 12px 0;
   display: block;
   position: relative;
@@ -270,11 +270,12 @@ input[type="range"]::-webkit-slider-thumb:hover {
   font-family: "Fira Code", "DM Mono", "SF Mono", monospace;
   background: none;
   border: none;
-  padding: 0;
+  padding: 14px 16px;
   color: var(--code-text);
   font-size: 13px;
   line-height: 1.6;
   display: block;
+  overflow-x: auto;
 }
 
 .msg-text pre code.hljs {
@@ -295,6 +296,51 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .msg-text pre code .hljs-comment { color: var(--hljs-comment); font-style: italic; }
 .msg-text pre code .hljs-params { color: var(--hljs-params); }
 .msg-text pre code .hljs-type { color: var(--hljs-type); }
+
+/* Code block header bar (language label + copy button) */
+.msg-text pre .code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px 6px 16px;
+  background: var(--code-border);
+  border-bottom: 1px solid var(--code-border);
+  font-family: "Syne", "Josefin Sans", sans-serif;
+}
+
+.msg-text pre .code-header .code-lang {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--warm-muted);
+  letter-spacing: 0.02em;
+  text-transform: capitalize;
+  user-select: none;
+}
+
+.msg-text pre .code-header .copy-btn {
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  color: var(--warm-muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: "Syne", "Josefin Sans", sans-serif;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.msg-text pre .code-header .copy-btn:hover {
+  background: var(--code-bg);
+  color: var(--amber);
+}
+
+.msg-text pre .code-header .copy-btn .copy-label {
+  font-size: 11px;
+}
 
 .msg-text blockquote {
   border-left: 3px solid var(--blockquote-border);
