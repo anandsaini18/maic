@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Generator
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import psutil
 
@@ -94,7 +95,7 @@ TOKEN_REQUIRED_MODELS: frozenset[str] = frozenset(
 )
 
 # Sorted by size for easy lookup by RAM tier
-FEASIBLE_BY_RAM: list[tuple[float, str]] = sorted(KNOWN_MODEL_SIZES.items(), key=lambda x: x[1])
+FEASIBLE_BY_RAM: list[tuple[str, float]] = sorted(KNOWN_MODEL_SIZES.items(), key=lambda x: x[1])
 
 
 # ── Custom Exceptions ─────────────────────────────────────────────────────────
@@ -124,7 +125,7 @@ class InferenceObserver(Protocol):
     """
 
     def on_token(self, token: str) -> None: ...
-    def on_complete(self, stats: dict) -> None: ...
+    def on_complete(self, stats: dict[str, Any]) -> None: ...
     def on_error(self, error: Exception) -> None: ...
 
 
@@ -140,7 +141,7 @@ class StatsObserver:
     def on_token(self, token: str) -> None:
         pass  # no-op per token; stats aggregated at on_complete
 
-    def on_complete(self, stats: dict) -> None:
+    def on_complete(self, stats: dict[str, Any]) -> None:
         logger.info(
             "Inference complete — %d tokens in %.2fs (%.1f tok/s)",
             stats["token_count"],
@@ -168,8 +169,8 @@ class ModelManager:
     """
 
     def __init__(self) -> None:
-        self._model = None
-        self._tokenizer = None
+        self._model: Any = None
+        self._tokenizer: Any = None
         self._model_id: str | None = None
         self._observers: list[InferenceObserver] = [StatsObserver()]
         # Populated after load() — text forms of all EOS tokens for stop-string detection
@@ -186,7 +187,7 @@ class ModelManager:
         for obs in self._observers:
             obs.on_token(token)
 
-    def _notify_complete(self, stats: dict) -> None:
+    def _notify_complete(self, stats: dict[str, Any]) -> None:
         """Broadcast generation-complete stats (token count, speed) to all observers."""
         for obs in self._observers:
             obs.on_complete(stats)
@@ -329,7 +330,7 @@ class ModelManager:
 
     def generate(
         self,
-        messages: list[dict],
+        messages: list[dict[str, str]],
         strategy: GenerationStrategy,
     ) -> TokenStream:
         """
@@ -379,7 +380,7 @@ class ModelManager:
         # Rolling buffer to catch stop strings spanning chunk boundaries
         max_suffix = max((len(s) for s in stop_strings), default=0)
 
-        def _observed() -> object:
+        def _observed() -> Generator[str, None, None]:
             """
             Three-layer stop detection: native EOS → length limit → text patterns.
 

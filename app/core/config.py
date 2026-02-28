@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -24,10 +24,10 @@ class GenerationStrategy(Protocol):
         max_tokens: int,
         temperature: float,
         top_p: float,
-    ) -> dict: ...
+    ) -> dict[str, Any]: ...
 
 
-def default_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict:
+def default_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict[str, Any]:
     """
     Standard sampling: pick tokens randomly weighted by probability.
 
@@ -43,7 +43,7 @@ def default_strategy(*, max_tokens: int, temperature: float, top_p: float) -> di
     }
 
 
-def greedy_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict:
+def greedy_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict[str, Any]:
     """
     Greedy decoding: always pick the single most probable next token (temp=0).
 

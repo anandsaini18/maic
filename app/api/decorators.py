@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from functools import wraps
+from typing import Any, ParamSpec, TypeVar
 
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
+P = ParamSpec("P")
+T = TypeVar("T")
 
 # ── Decorator Pattern ─────────────────────────────────────────────────────────
 
 
-def require_model(func: Callable) -> Callable:
+def require_model(func: Callable[P, Coroutine[Any, Any, T]]) -> Callable[P, Coroutine[Any, Any, T]]:
     """
     Decorator that blocks a route with HTTP 503 if the model isn't loaded yet.
 
@@ -29,7 +32,7 @@ def require_model(func: Callable) -> Callable:
     """
 
     @wraps(func)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         # Import here to avoid circular imports at module load time
         from app.core.model_manager import model_manager
 
@@ -45,10 +48,10 @@ def require_model(func: Callable) -> Callable:
             )
         return await func(*args, **kwargs)
 
-    return wrapper
+    return wrapper  # type: ignore[return-value]
 
 
-def timed(func: Callable) -> Callable:
+def timed(func: Callable[P, Coroutine[Any, Any, T]]) -> Callable[P, Coroutine[Any, Any, T]]:
     """
     Decorator that logs how long each request takes (wall-clock time in seconds).
 
@@ -63,7 +66,7 @@ def timed(func: Callable) -> Callable:
     """
 
     @wraps(func)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         t0 = time.perf_counter()
         try:
             result = await func(*args, **kwargs)
@@ -75,4 +78,4 @@ def timed(func: Callable) -> Callable:
             logger.debug("%s failed after %.3fs", func.__name__, elapsed)
             raise
 
-    return wrapper
+    return wrapper  # type: ignore[return-value]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from typing import Literal
 
 import psutil
 
@@ -34,7 +35,7 @@ class OpenAIAdapter:
     """
 
     @staticmethod
-    def messages_to_dicts(messages: list[Message]) -> list[dict]:
+    def messages_to_dicts(messages: list[Message]) -> list[dict[str, str]]:
         """
         Convert Pydantic Message objects into plain dicts that mlx_lm's chat
         template formatter understands (it expects {'role': ..., 'content': ...}).
@@ -53,7 +54,7 @@ class OpenAIAdapter:
         """
         text = stream.collect()
         token_count = stream.token_count
-        finish_reason = (
+        finish_reason: Literal["stop", "length"] = (
             "length" if request_max_tokens and token_count >= request_max_tokens else "stop"
         )
         return ChatCompletionResponse(
