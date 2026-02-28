@@ -34,7 +34,7 @@ def require_model(func: Callable[P, Coroutine[Any, Any, T]]) -> Callable[P, Coro
     @wraps(func)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         # Import here to avoid circular imports at module load time
-        from app.core.model_manager import model_manager
+        from maic.core.model_manager import model_manager
 
         if not model_manager.is_loaded:
             raise HTTPException(

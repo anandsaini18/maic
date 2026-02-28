@@ -38,13 +38,13 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run ruff
-        run: ruff check app/ tests/
+        run: ruff check src/maic/ tests/
 
       - name: Run black (format check)
-        run: black --check app/ tests/
+        run: black --check src/maic/ tests/
 
       - name: Run mypy
-        run: mypy app/
+        run: mypy src/maic/
 
   # ── Backend Tests ──────────────────────────────────────────────────────────
   # Runs pytest with coverage. MLX is fully mocked so ubuntu runners work.

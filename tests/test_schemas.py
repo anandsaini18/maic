@@ -9,7 +9,7 @@ removes Optional, these break before the bug reaches a client.
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.openai import (
+from maic.schemas.openai import (
     ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,

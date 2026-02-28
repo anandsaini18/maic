@@ -8,8 +8,8 @@ from typing import Any, Protocol, runtime_checkable
 
 import psutil
 
-from app.core.config import GenerationStrategy, settings
-from app.core.token_stream import TokenStream
+from maic.core.config import GenerationStrategy, settings
+from maic.core.token_stream import TokenStream
 
 logger = logging.getLogger(__name__)
 

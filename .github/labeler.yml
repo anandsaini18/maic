@@ -6,7 +6,7 @@
 "area: backend":
   - changed-files:
     - any-glob-to-any-file:
-      - "app/**"
+      - "src/maic/**"
       - "main.py"
       - "pyproject.toml"
 
@@ -50,14 +50,14 @@
 "type: api":
   - changed-files:
     - any-glob-to-any-file:
-      - "app/api/**"
-      - "app/adapters/**"
-      - "app/schemas/**"
+      - "src/maic/api/**"
+      - "src/maic/adapters/**"
+      - "src/maic/schemas/**"
 
 "type: core":
   - changed-files:
     - any-glob-to-any-file:
-      - "app/core/**"
+      - "src/maic/core/**"
 
 "type: ui-components":
   - changed-files:

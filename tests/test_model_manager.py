@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from app.core.model_manager import (
+from maic.core.model_manager import (
     KNOWN_MODEL_SIZES,
     TOKEN_REQUIRED_MODELS,
     InferenceObserver,
@@ -25,7 +25,7 @@ from app.core.model_manager import (
 class TestModelLocalPath:
     """Tests for model ID to path conversion."""
 
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_converts_slash_to_double_dash(self, mock_settings):
         """Should replace '/' with '--' in model paths."""
         mock_settings.models_dir = "/tmp/models"
@@ -36,7 +36,7 @@ class TestModelLocalPath:
         # No slash after models dir
         assert "/" not in str(result).split("/models/")[1]
 
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_expands_home_directory(self, mock_settings):
         """Should expand ~ to home directory."""
         mock_settings.models_dir = "~/models"
@@ -47,7 +47,7 @@ class TestModelLocalPath:
         assert "~" not in str(result)
         assert str(result).startswith("/")
 
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_handles_multiple_slashes(self, mock_settings):
         """Should handle model IDs with multiple slashes."""
         mock_settings.models_dir = "/tmp/models"
@@ -59,7 +59,7 @@ class TestModelLocalPath:
         assert path_str.count("--") == 3
         assert "/" not in path_str.split("/models/")[1]
 
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_returns_path_object(self, mock_settings):
         """Should return a Path object."""
         mock_settings.models_dir = "/tmp"
@@ -161,7 +161,7 @@ class TestCheckRAM:
         mm = ModelManager()
 
         # Mock psutil to return 10GB RAM, model needs 7GB (70%)
-        with patch("app.core.model_manager.psutil.virtual_memory") as mock_mem:
+        with patch("maic.core.model_manager.psutil.virtual_memory") as mock_mem:
             mock_mem.return_value.total = 10 * (1024**3)
             mock_mem.return_value.available = 10 * (1024**3)
 
@@ -173,7 +173,7 @@ class TestCheckRAM:
         mm = ModelManager()
 
         # Mock psutil to return 2GB RAM, model needs 4GB
-        with patch("app.core.model_manager.psutil.virtual_memory") as mock_mem:
+        with patch("maic.core.model_manager.psutil.virtual_memory") as mock_mem:
             mock_mem.return_value.total = 2 * (1024**3)
             mock_mem.return_value.available = 2 * (1024**3)
 
@@ -193,7 +193,7 @@ class TestCheckRAM:
         """Should suggest smaller models when rejecting too-large models."""
         mm = ModelManager()
 
-        with patch("app.core.model_manager.psutil.virtual_memory") as mock_mem:
+        with patch("maic.core.model_manager.psutil.virtual_memory") as mock_mem:
             mock_mem.return_value.total = 3 * (1024**3)  # 3GB
             mock_mem.return_value.available = 3 * (1024**3)
 
@@ -209,7 +209,7 @@ class TestCheckRAM:
         mm = ModelManager()
 
         # 10GB RAM, 80% = 8GB limit
-        with patch("app.core.model_manager.psutil.virtual_memory") as mock_mem:
+        with patch("maic.core.model_manager.psutil.virtual_memory") as mock_mem:
             mock_mem.return_value.total = 10 * (1024**3)
 
             # 8GB model at 80% should fail
@@ -286,7 +286,7 @@ class TestObserverPattern:
         """StatsObserver should log performance stats."""
         observer = StatsObserver()
 
-        with patch("app.core.model_manager.logger") as mock_logger:
+        with patch("maic.core.model_manager.logger") as mock_logger:
             stats = {"token_count": 42, "elapsed": 2.0, "tokens_per_second": 21.0}
             observer.on_complete(stats)
 
@@ -307,7 +307,7 @@ class TestObserverPattern:
 class TestModelLoad:
     """Tests for model loading logic."""
 
-    @patch("app.core.model_manager._ensure_model_downloaded")
+    @patch("maic.core.model_manager._ensure_model_downloaded")
     def test_load_successful_flow(self, mock_download):
         """Should download, load, and derive stop strings."""
         mm = ModelManager()
@@ -328,7 +328,7 @@ class TestModelLoad:
         assert mm._model_id == "test/model"
         mock_download.assert_called_once()
 
-    @patch("app.core.model_manager._ensure_model_downloaded")
+    @patch("maic.core.model_manager._ensure_model_downloaded")
     def test_load_checks_ram_before_download(self, mock_download):
         """Should check RAM before attempting download."""
         mm = ModelManager()
@@ -342,7 +342,7 @@ class TestModelLoad:
             # Download should not be called
             mock_download.assert_not_called()
 
-    @patch("app.core.model_manager._ensure_model_downloaded")
+    @patch("maic.core.model_manager._ensure_model_downloaded")
     def test_load_wraps_download_errors(self, mock_download):
         """Should wrap download errors in ModelLoadError."""
         mm = ModelManager()
@@ -355,7 +355,7 @@ class TestModelLoad:
             assert "Failed to download" in str(exc_info.value)
             assert "Network error" not in str(exc_info.value)
 
-    @patch("app.core.model_manager._ensure_model_downloaded")
+    @patch("maic.core.model_manager._ensure_model_downloaded")
     def test_load_wraps_mlx_errors(self, mock_download):
         """Should wrap MLX loading errors in ModelLoadError."""
         mm = ModelManager()
@@ -473,7 +473,7 @@ class TestDeriveStopStrings:
 class TestModelManagement:
     """Tests for is_downloaded, download_model, delete_model, disk_size_gb."""
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_is_downloaded_returns_true_with_safetensors(self, mock_path):
         """is_downloaded should return True if .safetensors exists."""
         mm = ModelManager()
@@ -485,7 +485,7 @@ class TestModelManagement:
 
         assert result is True
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_is_downloaded_returns_false_if_empty(self, mock_path):
         """is_downloaded should return False if no weight files."""
         mm = ModelManager()
@@ -497,8 +497,8 @@ class TestModelManagement:
 
         assert result is False
 
-    @patch("app.core.model_manager._ensure_model_downloaded")
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._ensure_model_downloaded")
+    @patch("maic.core.model_manager._model_local_path")
     def test_download_model(self, mock_path, mock_ensure_download):
         """download_model should ensure model is downloaded."""
         mm = ModelManager()
@@ -509,7 +509,7 @@ class TestModelManagement:
 
             mock_ensure_download.assert_called_once()
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_delete_model_refuses_loaded_model(self, mock_path):
         """delete_model should refuse to delete currently loaded model."""
         mm = ModelManager()
@@ -520,7 +520,7 @@ class TestModelManagement:
 
         assert "currently loaded" in str(exc_info.value)
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_delete_model_removes_directory(self, mock_path):
         """delete_model should remove model directory."""
         mm = ModelManager()
@@ -535,7 +535,7 @@ class TestModelManagement:
 
             mock_rmtree.assert_called_once()
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_disk_size_gb_returns_none_if_not_downloaded(self, mock_path):
         """disk_size_gb should return None if model not downloaded."""
         mm = ModelManager()
@@ -547,7 +547,7 @@ class TestModelManagement:
 
         assert result is None
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_disk_size_gb_calculates_size(self, mock_path):
         """disk_size_gb should calculate total size in GB."""
         mm = ModelManager()
@@ -593,14 +593,14 @@ class TestConstants:
 
     def test_feasible_by_ram_is_sorted(self):
         """FEASIBLE_BY_RAM should be sorted by size."""
-        from app.core.model_manager import FEASIBLE_BY_RAM
+        from maic.core.model_manager import FEASIBLE_BY_RAM
 
         sizes = [size for _, size in FEASIBLE_BY_RAM]
         assert sizes == sorted(sizes)
 
     def test_default_model_in_known_sizes(self):
         """Default model should be in KNOWN_MODEL_SIZES."""
-        with patch("app.core.model_manager.settings") as mock_settings:
+        with patch("maic.core.model_manager.settings") as mock_settings:
             mock_settings.model_id = "mlx-community/Phi-3.5-mini-instruct-4bit"
 
             assert mock_settings.model_id in KNOWN_MODEL_SIZES
@@ -614,7 +614,7 @@ class TestConstants:
 class TestPathSecurity:
     """Tests to ensure no path traversal vulnerabilities."""
 
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_no_path_traversal_in_model_id(self, mock_settings):
         """Should safely handle model IDs with '..' safely."""
         mock_settings.models_dir = "/safe/models"
@@ -625,7 +625,7 @@ class TestPathSecurity:
         # Should still be under models directory (due to resolve())
         assert str(result).startswith("/safe/models")
 
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_handles_absolute_paths_in_model_id(self, mock_settings):
         """Should not allow absolute paths in model IDs."""
         mock_settings.models_dir = "/safe/models"
@@ -661,7 +661,7 @@ class TestStopStringTrimming:
         with patch.dict(
             "sys.modules", {"mlx": MagicMock(), "mlx.core": mock_mx, "mlx_lm": mock_mlx}
         ):
-            with patch("app.core.model_manager.settings") as mock_settings:
+            with patch("maic.core.model_manager.settings") as mock_settings:
                 mock_settings.max_tokens = 512
                 mock_settings.temperature = 0.7
                 mock_settings.top_p = 0.9

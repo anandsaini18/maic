@@ -16,8 +16,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from app.adapters.openai_adapter import OpenAIAdapter
-from app.core.token_stream import TokenStream
+from maic.adapters.openai_adapter import OpenAIAdapter
+from maic.core.token_stream import TokenStream
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -135,7 +135,7 @@ class TestStreamToResponse:
 
 
 class TestBuildSupportedModels:
-    @patch("app.adapters.openai_adapter.psutil")
+    @patch("maic.adapters.openai_adapter.psutil")
     def test_feasibility_uses_80_percent_rule(self, mock_psutil):
         mem = Mock()
         mem.total = 16 * (1024**3)  # 16 GB
@@ -149,9 +149,9 @@ class TestBuildSupportedModels:
             assert model.feasible == (model.size_gb <= safe)
             assert model.min_ram_gb == round(model.size_gb / 0.8, 1)
 
-    @patch("app.adapters.openai_adapter.psutil")
+    @patch("maic.adapters.openai_adapter.psutil")
     def test_requires_token_propagated(self, mock_psutil):
-        from app.core.model_manager import TOKEN_REQUIRED_MODELS
+        from maic.core.model_manager import TOKEN_REQUIRED_MODELS
 
         mem = Mock()
         mem.total = 128 * (1024**3)

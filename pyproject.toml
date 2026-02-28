@@ -32,10 +32,11 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+where = ["src"]
+include = ["maic*"]
 
 [project.scripts]
-maic = "main:main"
+maic = "maic.cli:main"
 
 # ── pytest ───────────────────────────────────────────────────────────────────
 
@@ -47,7 +48,7 @@ addopts = [
     "-v",
     "--strict-markers",
     "--tb=short",
-    "--cov=app",
+    "--cov=maic",
     "--cov-report=term-missing",
     "--cov-report=html",
 ]
@@ -83,7 +84,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+known-first-party = ["maic"]
 
 # ── black ────────────────────────────────────────────────────────────────────
 

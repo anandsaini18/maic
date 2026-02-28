@@ -5,9 +5,9 @@ from typing import Literal
 
 import psutil
 
-from app.core.model_manager import FEASIBLE_BY_RAM, TOKEN_REQUIRED_MODELS
-from app.core.token_stream import TokenStream
-from app.schemas.openai import (
+from maic.core.model_manager import FEASIBLE_BY_RAM, TOKEN_REQUIRED_MODELS
+from maic.core.token_stream import TokenStream
+from maic.schemas.openai import (
     ChatChoice,
     ChatCompletionChunk,
     ChatCompletionResponse,

@@ -8,17 +8,17 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.adapters.openai_adapter import OpenAIAdapter
-from app.api.decorators import require_model, timed
-from app.core.config import default_strategy, settings
-from app.core.model_manager import (
+from maic.adapters.openai_adapter import OpenAIAdapter
+from maic.api.decorators import require_model, timed
+from maic.core.config import default_strategy, settings
+from maic.core.model_manager import (
     KNOWN_MODEL_SIZES,
     TOKEN_REQUIRED_MODELS,
     ModelLoadError,
     ModelTooLargeError,
     model_manager,
 )
-from app.schemas.openai import (
+from maic.schemas.openai import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     ModelCard,

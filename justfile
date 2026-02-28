@@ -79,9 +79,9 @@ lint: lint-python lint-frontend
 
 # Lint Python code (ruff + black check + mypy)
 lint-python:
-    {{VENV}}/ruff check app/ tests/
-    {{VENV}}/black --check app/ tests/
-    {{VENV}}/mypy app/
+    {{VENV}}/ruff check src/maic/ tests/
+    {{VENV}}/black --check src/maic/ tests/
+    {{VENV}}/mypy src/maic/
 
 # Lint frontend (ESLint + TypeScript)
 lint-frontend:
@@ -89,8 +89,8 @@ lint-frontend:
 
 # Auto-format Python code
 fmt:
-    {{VENV}}/ruff check --fix app/ tests/
-    {{VENV}}/black app/ tests/
+    {{VENV}}/ruff check --fix src/maic/ tests/
+    {{VENV}}/black src/maic/ tests/
 
 # ── CI (mirrors GitHub Actions locally) ──────────────────────────────────────
 

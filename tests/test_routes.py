@@ -15,9 +15,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.routes import _download_state, router
-from app.core.model_manager import ModelLoadError, ModelTooLargeError
-from app.core.token_stream import TokenStream
+from maic.api.routes import _download_state, router
+from maic.core.model_manager import ModelLoadError, ModelTooLargeError
+from maic.core.token_stream import TokenStream
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -49,8 +49,8 @@ def client(mm):
     # model_manager is imported lazily inside require_model's wrapper,
     # so we must patch it at the source module, not at decorators module level.
     with (
-        patch("app.api.routes.model_manager", mm),
-        patch("app.core.model_manager.model_manager", mm),
+        patch("maic.api.routes.model_manager", mm),
+        patch("maic.core.model_manager.model_manager", mm),
     ):
         yield TestClient(app)
 
@@ -77,7 +77,7 @@ class TestChatCompletions:
         self._with_stream(mm, ["Hello", " world"])
 
         with patch(
-            "app.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
+            "maic.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
         ):
             resp = client.post("/v1/chat/completions", json=_chat_body())
 
@@ -95,7 +95,7 @@ class TestChatCompletions:
         self._with_stream(mm, ["Hi"])
 
         with patch(
-            "app.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
+            "maic.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
         ):
             resp = client.post("/v1/chat/completions", json=_chat_body(stream=True))
 
@@ -129,8 +129,8 @@ class TestChatCompletions:
         app.include_router(router)
 
         with (
-            patch("app.api.routes.model_manager", mm),
-            patch("app.core.model_manager.model_manager", mm),
+            patch("maic.api.routes.model_manager", mm),
+            patch("maic.core.model_manager.model_manager", mm),
         ):
             resp = TestClient(app).post("/v1/chat/completions", json=_chat_body())
 
@@ -151,7 +151,7 @@ class TestChatCompletions:
 
         mm.generate.side_effect = fake_generate
 
-        with patch("app.api.routes.default_strategy", side_effect=spy):
+        with patch("maic.api.routes.default_strategy", side_effect=spy):
             client.post("/v1/chat/completions", json=_chat_body(temperature=0.0, top_p=0.0))
 
         assert captured["temperature"] == 0.0
@@ -170,7 +170,7 @@ class TestChatCompletions:
 
         mm.generate.side_effect = fake_generate
 
-        with patch("app.api.routes.default_strategy", side_effect=spy):
+        with patch("maic.api.routes.default_strategy", side_effect=spy):
             client.post("/v1/chat/completions", json=_chat_body(max_tokens=42))
 
         assert captured["max_tokens"] == 42
@@ -179,7 +179,7 @@ class TestChatCompletions:
         self._with_stream(mm, ["a", "b", "c"])
 
         with patch(
-            "app.api.routes.default_strategy", return_value={"max_tokens": 3, "sampler": None}
+            "maic.api.routes.default_strategy", return_value={"max_tokens": 3, "sampler": None}
         ):
             resp = client.post("/v1/chat/completions", json=_chat_body(max_tokens=3))
 
@@ -206,7 +206,7 @@ class TestListModels:
 
     def test_falls_back_to_settings(self, client, mm):
         mm.model_id = None
-        with patch("app.api.routes.settings") as s:
+        with patch("maic.api.routes.settings") as s:
             s.model_id = "default/fallback"
             resp = client.get("/v1/models")
         assert resp.json()["data"][0]["id"] == "default/fallback"
@@ -251,7 +251,7 @@ class TestDownloadModel:
         assert resp.json()["status"] == "already_downloading"
 
     def test_starts_thread(self, client, mm):
-        with patch("app.api.routes.threading") as mock_t:
+        with patch("maic.api.routes.threading") as mock_t:
             resp = client.post("/v1/models/download", json={"model_id": "org/m"})
         assert resp.json()["status"] == "started"
         mock_t.Thread.assert_called_once()
@@ -301,7 +301,7 @@ class TestModelsStatus:
         mock_vm.return_value = mem
         mm.model_id = None
 
-        from app.core.model_manager import KNOWN_MODEL_SIZES
+        from maic.core.model_manager import KNOWN_MODEL_SIZES
 
         mid = next(iter(KNOWN_MODEL_SIZES))
         _download_state[mid] = "error: connection timeout"
