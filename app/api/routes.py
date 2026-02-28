@@ -57,7 +57,7 @@ async def list_supported_models() -> SupportedModelList:
 # ── /v1/chat/completions ──────────────────────────────────────────────────────
 
 
-@router.post("/v1/chat/completions")
+@router.post("/v1/chat/completions", response_model=None)
 @require_model  # Decorator: returns 503 if model not loaded
 @timed  # Decorator: logs wall-clock time per request
 async def chat_completions(
