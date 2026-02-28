@@ -29,7 +29,7 @@ install-frontend:
 
 # Start the backend server (pass args like: just dev --model mlx-community/Llama-3.2-1B-Instruct-4bit)
 dev *ARGS:
-    {{VENV}}/python main.py {{ARGS}}
+    {{VENV}}/python src/maic/cli.py {{ARGS}}
 
 # Start the frontend dev server (Vite, port 5173, proxies to backend)
 dev-frontend:
