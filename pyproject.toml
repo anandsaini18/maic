@@ -24,6 +24,8 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-timeout>=2.1.0",
     "pytest-mock>=3.11.1",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
@@ -59,6 +61,7 @@ minversion = "3.10"
 testpaths = ["tests"]
 norecursedirs = [".git", ".venv", "__pycache__", "*.egg-info", ".pytest_cache"]
 timeout = 30
+asyncio_mode = "auto"
 
 # ── ruff ─────────────────────────────────────────────────────────────────────
 

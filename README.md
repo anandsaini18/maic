@@ -214,7 +214,7 @@ Maic works as a local OpenAI replacement.
 |-------|-------|
 | Backend | FastAPI, MLX, Uvicorn, Pydantic |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS |
-| Testing | pytest, pytest-cov |
+| Testing | pytest, pytest-cov, pytest-asyncio, httpx |
 | Linting | ruff, black, mypy, ESLint |
 | CI/CD | GitHub Actions (lint, test, build matrix) |
 | Config | `pyproject.toml` (single source of truth) |
@@ -237,6 +237,28 @@ Configure via `.env` file or environment variables (see `.env.example`):
 Priority: CLI flag > env var > `.env` file > built-in default.
 
 
+
+---
+
+## 🧪 Testing
+
+```bash
+just test           # All tests with coverage
+just test-quick     # Fast run, no coverage
+just test-security  # Security tests only
+just lint           # All linters (Python + frontend)
+just ci             # Full CI pipeline locally
+```
+
+Tests are organized by layer:
+
+| Test file | Covers | Approach |
+|-----------|--------|----------|
+| `test_routes.py` | HTTP endpoints, decorators, adapter, schemas | Integration via `TestClient` |
+| `test_openai_adapter.py` | SSE wire format, finish_reason logic, RAM feasibility | Unit tests |
+| `test_schemas.py` | Pydantic validation edge cases (roles, literals, defaults) | Unit tests |
+| `test_model_manager.py` | Model loading, RAM checks, observer pattern, security | Unit tests |
+| `test_token_stream.py` | Iterator protocol, timing, token accumulation | Unit tests |
 
 ---
 
