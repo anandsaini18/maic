@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 # ── CLI argument parsing ──────────────────────────────────────────────────────
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Local LLM REST server (MLX + OpenAI-compatible API)",
@@ -54,6 +55,7 @@ def parse_args() -> argparse.Namespace:
 
 # ── FastAPI lifespan — model load on startup ──────────────────────────────────
 
+
 def make_lifespan(model_id: str) -> Any:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -71,6 +73,7 @@ def make_lifespan(model_id: str) -> Any:
 
 
 # ── App factory ───────────────────────────────────────────────────────────────
+
 
 def create_app(model_id: str) -> FastAPI:
     app = FastAPI(
@@ -104,6 +107,7 @@ def create_app(model_id: str) -> FastAPI:
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     args = parse_args()
 
@@ -117,6 +121,7 @@ def main() -> None:
     # message, never entering uvicorn's lifespan machinery.
     try:
         from maic.core.model_manager import ModelManager
+
         ModelManager()._check_ram(model_id)
     except ModelTooLargeError as exc:
         print(str(exc), file=sys.stderr)
