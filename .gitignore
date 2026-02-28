@@ -24,7 +24,10 @@ share/python-wheels/
 MANIFEST
 .pytest_cache/
 htmlcov/
-
+.claude
+.coverage
+coverage.xml
+CLAUDE.md
 # Virtual environments
 venv/
 ENV/
