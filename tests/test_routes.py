@@ -49,7 +49,7 @@ def client(mm):
     # model_manager is imported lazily inside require_model's wrapper,
     # so we must patch it at the source module, not at decorators module level.
     with patch("app.api.routes.model_manager", mm), \
-         patch("app.core.model_manager.model_manager", mm):
+            patch("app.core.model_manager.model_manager", mm):
         yield TestClient(app)
 
 
@@ -90,12 +90,14 @@ class TestChatCompletions:
         self._with_stream(mm, ["Hi"])
 
         with patch("app.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}):
-            resp = client.post("/v1/chat/completions", json=_chat_body(stream=True))
+            resp = client.post("/v1/chat/completions",
+                               json=_chat_body(stream=True))
 
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
 
-        events = [l for l in resp.text.strip().split("\n\n") if l.startswith("data:")]
+        events = [l for l in resp.text.strip().split(
+            "\n\n") if l.startswith("data:")]
         assert len(events) == 4  # role + content + stop + [DONE]
         assert events[-1] == "data: [DONE]"
 
@@ -122,8 +124,9 @@ class TestChatCompletions:
         app.include_router(router)
 
         with patch("app.api.routes.model_manager", mm), \
-             patch("app.core.model_manager.model_manager", mm):
-            resp = TestClient(app).post("/v1/chat/completions", json=_chat_body())
+                patch("app.core.model_manager.model_manager", mm):
+            resp = TestClient(app).post(
+                "/v1/chat/completions", json=_chat_body())
 
         assert resp.status_code == 503
 
@@ -143,7 +146,8 @@ class TestChatCompletions:
         mm.generate.side_effect = fake_generate
 
         with patch("app.api.routes.default_strategy", side_effect=spy):
-            client.post("/v1/chat/completions", json=_chat_body(temperature=0.0, top_p=0.0))
+            client.post("/v1/chat/completions",
+                        json=_chat_body(temperature=0.0, top_p=0.0))
 
         assert captured["temperature"] == 0.0
         assert captured["top_p"] == 0.0
@@ -170,16 +174,19 @@ class TestChatCompletions:
         self._with_stream(mm, ["a", "b", "c"])
 
         with patch("app.api.routes.default_strategy", return_value={"max_tokens": 3, "sampler": None}):
-            resp = client.post("/v1/chat/completions", json=_chat_body(max_tokens=3))
+            resp = client.post("/v1/chat/completions",
+                               json=_chat_body(max_tokens=3))
 
         assert resp.json()["choices"][0]["finish_reason"] == "length"
 
     def test_invalid_role_returns_422(self, client):
         body = {"model": "m", "messages": [{"role": "tool", "content": "x"}]}
-        assert client.post("/v1/chat/completions", json=body).status_code == 422
+        assert client.post("/v1/chat/completions",
+                           json=body).status_code == 422
 
     def test_missing_messages_returns_422(self, client):
-        assert client.post("/v1/chat/completions", json={"model": "m"}).status_code == 422
+        assert client.post("/v1/chat/completions",
+                           json={"model": "m"}).status_code == 422
 
 
 # ── Model management endpoints ───────────────────────────────────────────────
@@ -240,7 +247,8 @@ class TestDownloadModel:
 
     def test_starts_thread(self, client, mm):
         with patch("app.api.routes.threading") as mock_t:
-            resp = client.post("/v1/models/download", json={"model_id": "org/m"})
+            resp = client.post("/v1/models/download",
+                               json={"model_id": "org/m"})
         assert resp.json()["status"] == "started"
         mock_t.Thread.assert_called_once()
 
@@ -248,12 +256,14 @@ class TestDownloadModel:
 class TestDeleteModel:
     def test_404_when_not_downloaded(self, client, mm):
         mm.is_downloaded.return_value = False
-        assert client.request("DELETE", "/v1/models/org/model").status_code == 404
+        assert client.request(
+            "DELETE", "/v1/models/org/model").status_code == 404
 
     def test_409_when_active(self, client, mm):
         mm.is_downloaded.return_value = True
         mm.delete_model.side_effect = RuntimeError("active")
-        assert client.request("DELETE", "/v1/models/org/model").status_code == 409
+        assert client.request(
+            "DELETE", "/v1/models/org/model").status_code == 409
 
     def test_success(self, client, mm):
         mm.is_downloaded.return_value = True

@@ -27,7 +27,7 @@ class TestTokenStreamIterator:
         """__next__ should yield tokens one at a time."""
         gen = self.generator_fixture()
         stream = TokenStream(gen)
-        
+
         assert next(stream) == "Hello"
         assert next(stream) == " "
         assert next(stream) == "world"
@@ -37,10 +37,10 @@ class TestTokenStreamIterator:
         """__next__ should raise StopIteration when generator exhausted."""
         gen = self.generator_fixture()
         stream = TokenStream(gen)
-        
+
         # Consume all tokens
         list(stream)
-        
+
         # Next call should raise StopIteration
         with pytest.raises(StopIteration):
             next(stream)
@@ -49,7 +49,7 @@ class TestTokenStreamIterator:
         """Stream should work with for loops."""
         gen = self.generator_fixture()
         stream = TokenStream(gen)
-        
+
         tokens = [token for token in stream]
         assert tokens == ["Hello", " ", "world", "!"]
 
@@ -67,7 +67,7 @@ class TestTokenAccumulation:
         """token_count should increase as tokens are yielded."""
         gen = self.generator_with_delays()
         stream = TokenStream(gen)
-        
+
         assert stream.token_count == 0
         next(stream)
         assert stream.token_count == 1
@@ -79,11 +79,11 @@ class TestTokenAccumulation:
         def simple_gen():
             yield "H"
             yield "i"
-        
+
         gen = simple_gen()
         stream = TokenStream(gen)
         result = stream.collect()
-        
+
         assert result == "Hi"
         assert stream.token_count == 2
 
@@ -92,11 +92,11 @@ class TestTokenAccumulation:
         def empty_gen():
             return
             yield  # Unreachable, makes it a generator
-        
+
         gen = empty_gen()
         stream = TokenStream(gen)
         result = stream.collect()
-        
+
         assert result == ""
         assert stream.token_count == 0
 
@@ -105,11 +105,11 @@ class TestTokenAccumulation:
         def counting_gen():
             for i in range(5):
                 yield f"token{i}"
-        
+
         gen = counting_gen()
         stream = TokenStream(gen)
         list(stream)  # Consume all
-        
+
         assert stream.token_count == 5
 
 
@@ -122,15 +122,15 @@ class TestTimingMetrics:
             yield "1"
             time.sleep(0.05)
             yield "2"
-        
+
         gen = slow_gen()
         stream = TokenStream(gen)
-        
+
         start_elapsed = stream.elapsed
         next(stream)
         next(stream)
         end_elapsed = stream.elapsed
-        
+
         # End elapsed should be slightly larger (gen took 0.05s)
         assert end_elapsed > start_elapsed
         assert end_elapsed >= 0.04  # Allow small timing variations
@@ -141,13 +141,13 @@ class TestTimingMetrics:
             yield "a"
             time.sleep(0.05)
             yield "b"
-        
+
         gen = timed_gen()
         stream = TokenStream(gen)
-        
+
         # Consume all tokens
         list(stream)
-        
+
         elapsed = stream.elapsed
         assert elapsed >= 0.04  # Should have paused for ~0.05s
 
@@ -156,17 +156,17 @@ class TestTimingMetrics:
         def fast_gen():
             for i in range(4):
                 yield f"t{i}"
-        
+
         gen = fast_gen()
         stream = TokenStream(gen)
-        
+
         start = time.perf_counter()
         list(stream)
         end = time.perf_counter()
-        
+
         expected_tps = 4 / (end - start)
         actual_tps = stream.tokens_per_second
-        
+
         # Should be approximately equal (within 10% due to timing variations)
         assert actual_tps * 0.9 <= expected_tps <= actual_tps * 1.1
 
@@ -174,14 +174,14 @@ class TestTimingMetrics:
         """tokens_per_second should return 0 if elapsed is 0 (edge case)."""
         def instant_gen():
             yield "instant"
-        
+
         gen = instant_gen()
         stream = TokenStream(gen)
-        
+
         # Artificially set finished_at to same as started_at
         next(stream)
         stream._finished_at = stream._started_at
-        
+
         assert stream.tokens_per_second == 0.0
 
     def test_elapsed_during_active_stream(self):
@@ -190,16 +190,16 @@ class TestTimingMetrics:
             yield "1"
             time.sleep(0.05)
             # Don't return yet, stream still active
-        
+
         gen = slow_gen()
         stream = TokenStream(gen)
-        
+
         next(stream)
         elapsed_at_one = stream.elapsed
-        
+
         time.sleep(0.05)
         elapsed_at_two = stream.elapsed
-        
+
         # Should increase because we slept while monitoring
         assert elapsed_at_two > elapsed_at_one
 
@@ -212,10 +212,10 @@ class TestEdgeCases:
         def empty():
             return
             yield
-        
+
         stream = TokenStream(empty())
         tokens = list(stream)
-        
+
         assert tokens == []
         assert stream.token_count == 0
         assert stream.elapsed >= 0
@@ -224,7 +224,7 @@ class TestEdgeCases:
         """Should handle single-token stream."""
         def single():
             yield "only"
-        
+
         stream = TokenStream(single())
         assert list(stream) == ["only"]
         assert stream.token_count == 1
@@ -234,10 +234,10 @@ class TestEdgeCases:
         def large_gen():
             yield "x" * 10000
             yield "y" * 10000
-        
+
         stream = TokenStream(large_gen())
         result = stream.collect()
-        
+
         assert len(result) == 20000
         assert stream.token_count == 2
 
@@ -247,10 +247,10 @@ class TestEdgeCases:
             yield "   "
             yield "\n"
             yield "\t"
-        
+
         stream = TokenStream(whitespace_gen())
         result = stream.collect()
-        
+
         assert result == "   \n\t"
 
     def test_unicode_tokens(self):
@@ -259,10 +259,10 @@ class TestEdgeCases:
             yield "Hello"
             yield " 🚀 "
             yield "世界"
-        
+
         stream = TokenStream(unicode_gen())
         result = stream.collect()
-        
+
         assert result == "Hello 🚀 世界"
         assert stream.token_count == 3
 
@@ -270,18 +270,18 @@ class TestEdgeCases:
         """_finished_at should be set when StopIteration is raised."""
         def tiny_gen():
             yield "x"
-        
+
         stream = TokenStream(tiny_gen())
         assert stream._finished_at is None
-        
+
         next(stream)
         assert stream._finished_at is None  # Not finished yet
-        
+
         try:
             next(stream)
         except StopIteration:
             pass
-        
+
         assert stream._finished_at is not None
 
 
@@ -293,10 +293,10 @@ class TestCollectMethod:
         def text_gen():
             yield "a"
             yield "b"
-        
+
         stream = TokenStream(text_gen())
         result = stream.collect()
-        
+
         assert isinstance(result, str)
         assert result == "ab"
 
@@ -306,10 +306,10 @@ class TestCollectMethod:
             yield "["
             yield "{map}"
             yield "]"
-        
+
         stream = TokenStream(special_gen())
         result = stream.collect()
-        
+
         assert result == "[{map}]"
 
     def test_multiple_collect_calls(self):
@@ -317,11 +317,11 @@ class TestCollectMethod:
         def limited_gen():
             yield "a"
             yield "b"
-        
+
         stream = TokenStream(limited_gen())
         first = stream.collect()
         second = "".join([])  # Simulate second collect on exhausted stream
-        
+
         assert first == "ab"
 
 
@@ -332,17 +332,17 @@ class TestTimingAccuracy:
         """When finished, elapsed should use recorded finish time."""
         def quick_gen():
             yield "done"
-        
+
         gen = quick_gen()
         stream = TokenStream(gen)
-        
+
         list(stream)  # Consume all
-        
+
         # Get elapsed twice; should be identical since _finished_at is set
         elapsed1 = stream.elapsed
         time.sleep(0.01)
         elapsed2 = stream.elapsed
-        
+
         # Both should be very close since using same finish time
         assert abs(elapsed1 - elapsed2) < 0.005
 
@@ -351,15 +351,15 @@ class TestTimingAccuracy:
         def slow_gen():
             yield "token"
             # Stream left active
-        
+
         gen = slow_gen()
         stream = TokenStream(gen)
-        
+
         next(stream)
         elapsed1 = stream.elapsed
-        
+
         time.sleep(0.02)
         elapsed2 = stream.elapsed
-        
+
         # Should have increased due to sleep
         assert elapsed2 > elapsed1 + 0.015

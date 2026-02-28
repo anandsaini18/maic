@@ -22,6 +22,7 @@ from app.core.token_stream import TokenStream
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+
 def _stream(tokens: list[str]) -> TokenStream:
     return TokenStream(iter(tokens))
 
@@ -37,6 +38,7 @@ def _parse_sse(event: str) -> dict:
 
 
 # ── stream_to_sse ────────────────────────────────────────────────────────────
+
 
 class TestStreamToSSE:
     """SSE wire format — this is a client-facing protocol contract."""
@@ -101,25 +103,30 @@ class TestStreamToSSE:
 
 # ── stream_to_response ───────────────────────────────────────────────────────
 
+
 class TestStreamToResponse:
     """Non-streaming response — finish_reason branching is the key logic."""
 
     def test_collects_text_and_usage(self):
-        resp = OpenAIAdapter.stream_to_response(_stream(["Hello", " world"]), "m")
+        resp = OpenAIAdapter.stream_to_response(
+            _stream(["Hello", " world"]), "m")
         assert resp.choices[0].message.content == "Hello world"
         assert resp.usage.completion_tokens == 2
         assert resp.usage.tokens_per_second is not None
 
     def test_finish_reason_stop_when_no_limit(self):
-        resp = OpenAIAdapter.stream_to_response(_stream(["a", "b"]), "m", request_max_tokens=None)
+        resp = OpenAIAdapter.stream_to_response(
+            _stream(["a", "b"]), "m", request_max_tokens=None)
         assert resp.choices[0].finish_reason == "stop"
 
     def test_finish_reason_length_at_exact_limit(self):
-        resp = OpenAIAdapter.stream_to_response(_stream(["a", "b", "c"]), "m", request_max_tokens=3)
+        resp = OpenAIAdapter.stream_to_response(
+            _stream(["a", "b", "c"]), "m", request_max_tokens=3)
         assert resp.choices[0].finish_reason == "length"
 
     def test_finish_reason_stop_when_under_limit(self):
-        resp = OpenAIAdapter.stream_to_response(_stream(["a"]), "m", request_max_tokens=100)
+        resp = OpenAIAdapter.stream_to_response(
+            _stream(["a"]), "m", request_max_tokens=100)
         assert resp.choices[0].finish_reason == "stop"
 
     def test_empty_stream_returns_empty_content(self):
@@ -131,11 +138,12 @@ class TestStreamToResponse:
 
 # ── build_supported_models ───────────────────────────────────────────────────
 
+
 class TestBuildSupportedModels:
     @patch("app.adapters.openai_adapter.psutil")
     def test_feasibility_uses_80_percent_rule(self, mock_psutil):
         mem = Mock()
-        mem.total = 16 * (1024 ** 3)  # 16 GB
+        mem.total = 16 * (1024**3)  # 16 GB
         mock_psutil.virtual_memory.return_value = mem
 
         result = OpenAIAdapter.build_supported_models()
@@ -149,8 +157,9 @@ class TestBuildSupportedModels:
     @patch("app.adapters.openai_adapter.psutil")
     def test_requires_token_propagated(self, mock_psutil):
         from app.core.model_manager import TOKEN_REQUIRED_MODELS
+
         mem = Mock()
-        mem.total = 128 * (1024 ** 3)
+        mem.total = 128 * (1024**3)
         mock_psutil.virtual_memory.return_value = mem
 
         result = OpenAIAdapter.build_supported_models()
