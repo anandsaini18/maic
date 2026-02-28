@@ -118,39 +118,58 @@ No API billing.
 
 ## ⚡ How to Run LLM Models Locally on MacBook
 
-### 1️⃣ Clone Repository
+### Prerequisites
+
+- Python 3.10+
+- Node.js 22+
+- [just](https://github.com/casey/just) command runner (`brew install just`)
+
+### 1️⃣ Clone & Setup
 
 ```bash
 git clone https://github.com/anandsaini18/maic.git
 cd maic
-
-2️⃣ Quick Start (Recommended)
-
-chmod +x run.sh
-./run.sh
+just setup
+```
 
 This automatically:
+- Creates a Python virtual environment (`.venv/`)
+- Installs backend dependencies + MLX
+- Installs frontend dependencies and builds the UI
 
-Creates a Python virtual environment
+### 2️⃣ Start the Server
 
-Installs backend dependencies
+```bash
+just dev
+```
 
-Starts the inference server
-
-Launches the web UI
-
-
-Open your browser:
-
-http://localhost:8000
+Open your browser: **http://localhost:8000**
 
 You now have a fully local LLM running on your Mac.
 
+### Available Commands
+
+Run `just` to see all commands:
+
+| Command | Description |
+|---------|-------------|
+| `just setup` | Create venv + install everything |
+| `just dev` | Start the backend server |
+| `just dev --model mlx-community/Llama-3.2-1B-Instruct-4bit` | Start with a specific model |
+| `just dev-frontend` | Start Vite dev server (port 5173) |
+| `just build` | Build frontend for production |
+| `just test` | Run all tests with coverage |
+| `just test-quick` | Fast test run, no coverage |
+| `just lint` | Run all linters (Python + frontend) |
+| `just fmt` | Auto-format Python code |
+| `just ci` | Run the full CI pipeline locally |
+| `just clean` | Remove build artifacts and caches |
 
 ---
 
-🔌 API Example (OpenAI Compatible)
+## 🔌 API Example (OpenAI Compatible)
 
+```bash
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
@@ -158,113 +177,100 @@ curl http://localhost:8000/v1/chat/completions \
     "messages": [{"role": "user", "content": "Explain quantum entanglement simply."}],
     "stream": true
   }'
+```
 
 Maic works as a local OpenAI replacement.
 
 
 ---
 
-🎯 Use Cases
+## 🎯 Use Cases
 
-Run LLM offline on Mac
+- Run LLM offline on Mac
+- Private AI assistant
+- Develop AI apps without OpenAI billing
+- Local-first AI experimentation
+- Secure enterprise prototyping
 
-Private AI assistant
+---
 
-Develop AI apps without OpenAI billing
+## 📊 Comparison
 
-Local-first AI experimentation
-
-Secure enterprise prototyping
+| Feature | Maic | Cloud APIs | CLI-only Tools |
+|---------|------|------------|----------------|
+| No API Key | ✅ | ❌ | ✅ |
+| Fully Offline | ✅ | ❌ | ✅ |
+| Web UI | ✅ | ❌ | ❌ |
+| OpenAI Compatible | ✅ | ✅ | ❌ |
+| Apple Silicon Optimized | ✅ | ❌ | ⚠️ |
 
 
 
 ---
 
-📊 Comparison
+## 🛠️ Tech Stack
 
-Feature	Maic	Cloud APIs	CLI-only Tools
+| Layer | Tools |
+|-------|-------|
+| Backend | FastAPI, MLX, Uvicorn, Pydantic |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS |
+| Testing | pytest, pytest-cov |
+| Linting | ruff, black, mypy, ESLint |
+| CI/CD | GitHub Actions (lint, test, build matrix) |
+| Config | `pyproject.toml` (single source of truth) |
+| Task Runner | [just](https://github.com/casey/just) |
 
-No API Key	✅	❌	✅
-Fully Offline	✅	❌	✅
-Web UI	✅	❌	❌
-OpenAI Compatible	✅	✅	❌
-Apple Silicon Optimized	✅	❌	⚠️
+---
+
+## 📖 Configuration
+
+Configure via `.env` file or environment variables (see `.env.example`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MODEL_ID` | `mlx-community/Phi-3.5-mini-instruct-4bit` | HuggingFace model ID |
+| `HOST` | `0.0.0.0` | Server bind address |
+| `PORT` | `8000` | Server port |
+| `MAX_TOKENS` | `512` | Max tokens per response |
+| `TEMPERATURE` | `0.7` | Sampling temperature |
+
+Priority: CLI flag > env var > `.env` file > built-in default.
 
 
 
 ---
 
-🛠️ Tech Stack
+## 📈 Search Queries This Project Helps With
 
-Backend: FastAPI, MLX, Uvicorn, Pydantic
-Frontend: React, Vite, Tailwind CSS
-Architecture: Local-first AI runtime
-
-
----
-
-📖 Configuration
-
-Configure via environment variables:
-
-MODEL_ID – Default HuggingFace model ID
-
-HOST – Server bind address (default: 0.0.0.0)
-
-PORT – Server port (default: 8000)
-
-
+- how to run llm models on macbook locally without any subscription or api key
+- run llm locally mac m1
+- apple silicon local llm
+- openai alternative mac offline
+- local openai server mac
+- chatgpt alternative mac
 
 ---
 
-📈 Search Queries This Project Helps With
+## 🛣 Roadmap
 
-how to run llm models on macbook locally without any subscription or api key
-
-run llm locally mac m1
-
-apple silicon local llm
-
-openai alternative mac offline
-
-local openai server mac
-
-chatgpt alternative mac
-
-
+- Benchmark suite vs llama.cpp
+- Improved Metal acceleration
+- Multi-model support
+- Built-in local RAG support
+- Native macOS app packaging
 
 ---
 
-🛣 Roadmap
-
-Benchmark suite vs llama.cpp
-
-Improved Metal acceleration
-
-Multi-model support
-
-Built-in local RAG support
-
-Native macOS app packaging
-
-
-
----
-
-🤝 Contributing
+## 🤝 Contributing
 
 Pull requests and issues are welcome.
 
-
 ---
 
-📄 License
+## 📄 License
 
 MIT License.
-
 
 ---
 
 Built with ❤️ for the Apple Silicon and Mac AI community.
-
----
