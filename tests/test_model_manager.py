@@ -83,7 +83,7 @@ class TestEnsureModelDownloaded:
         local_path.mkdir(parents=True)
         (local_path / "model.safetensors").write_text("weights")
 
-        with patch("app.core.model_manager.snapshot_download") as mock_download:
+        with patch("huggingface_hub.snapshot_download") as mock_download:
             _ensure_model_downloaded("test/model", local_path)
 
             # Should not call download
@@ -95,7 +95,7 @@ class TestEnsureModelDownloaded:
         local_path.mkdir(parents=True)
         (local_path / "model.npz").write_text("weights")
 
-        with patch("app.core.model_manager.snapshot_download") as mock_download:
+        with patch("huggingface_hub.snapshot_download") as mock_download:
             _ensure_model_downloaded("test/model", local_path)
 
             mock_download.assert_not_called()
@@ -104,7 +104,7 @@ class TestEnsureModelDownloaded:
         """Should download if no weight files exist locally."""
         local_path = tmp_path / "new_model"
 
-        with patch("app.core.model_manager.snapshot_download") as mock_download:
+        with patch("huggingface_hub.snapshot_download") as mock_download:
             _ensure_model_downloaded("test/model", local_path)
 
             # Should call snapshot_download
@@ -116,7 +116,7 @@ class TestEnsureModelDownloaded:
         local_path = tmp_path / "model"
 
         with patch.dict("os.environ", {}, clear=False):
-            with patch("app.core.model_manager.snapshot_download"):
+            with patch("huggingface_hub.snapshot_download"):
                 _ensure_model_downloaded("test/model", local_path)
 
                 # Check env var was set
@@ -128,7 +128,7 @@ class TestEnsureModelDownloaded:
         """Should ignore .bin files and original/ folder during download."""
         local_path = tmp_path / "model"
 
-        with patch("app.core.model_manager.snapshot_download") as mock_download:
+        with patch("huggingface_hub.snapshot_download") as mock_download:
             _ensure_model_downloaded("test/model", local_path)
 
             # Check ignore patterns
@@ -141,7 +141,7 @@ class TestEnsureModelDownloaded:
         local_path = tmp_path / "deep" / "nested" / "model"
         assert not local_path.exists()
 
-        with patch("app.core.model_manager.snapshot_download"):
+        with patch("huggingface_hub.snapshot_download"):
             _ensure_model_downloaded("test/model", local_path)
 
             # Directory should be created
@@ -290,11 +290,13 @@ class TestObserverPattern:
             stats = {"token_count": 42, "elapsed": 2.0, "tokens_per_second": 21.0}
             observer.on_complete(stats)
 
-            # Should log with correct values
+            # Should log with correct values (format string uses %d placeholders)
             mock_logger.info.assert_called_once()
             call_args = mock_logger.info.call_args[0]
-            assert "42 tokens" in call_args[0]
-            assert call_args[1] == 42
+            assert "%d" in call_args[0]  # format string
+            assert call_args[1] == 42  # token_count
+            assert call_args[2] == 2.0  # elapsed
+            assert call_args[3] == 21.0  # tokens_per_second
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -305,19 +307,21 @@ class TestObserverPattern:
 class TestModelLoad:
     """Tests for model loading logic."""
 
-    @patch("app.core.model_manager.mlx_lm.load")
     @patch("app.core.model_manager._ensure_model_downloaded")
-    def test_load_successful_flow(self, mock_download, mock_mlx_load):
+    def test_load_successful_flow(self, mock_download):
         """Should download, load, and derive stop strings."""
         mm = ModelManager()
         mock_model = Mock()
         mock_tokenizer = Mock()
         mock_tokenizer.eos_token_ids = []
-        mock_mlx_load.return_value = (mock_model, mock_tokenizer)
+
+        mock_mlx = MagicMock()
+        mock_mlx.load.return_value = (mock_model, mock_tokenizer)
 
         with patch.object(mm, "_check_ram"):
-            with patch.object(mm, "_derive_stop_strings", return_value=frozenset()):
-                mm.load("test/model")
+            with patch.dict("sys.modules", {"mlx_lm": mock_mlx}):
+                with patch.object(mm, "_derive_stop_strings", return_value=frozenset()):
+                    mm.load("test/model")
 
         assert mm._model is mock_model
         assert mm._tokenizer is mock_tokenizer
@@ -591,7 +595,7 @@ class TestConstants:
         """FEASIBLE_BY_RAM should be sorted by size."""
         from app.core.model_manager import FEASIBLE_BY_RAM
 
-        sizes = [size for size, _ in FEASIBLE_BY_RAM]
+        sizes = [size for _, size in FEASIBLE_BY_RAM]
         assert sizes == sorted(sizes)
 
     def test_default_model_in_known_sizes(self):
@@ -654,7 +658,9 @@ class TestStopStringTrimming:
         mock_mlx = MagicMock()
         mock_mlx.stream_generate.return_value = iter(responses)
         strategy = Mock(return_value={})
-        with patch.dict("sys.modules", {"mlx.core": mock_mx, "mlx_lm": mock_mlx}):
+        with patch.dict(
+            "sys.modules", {"mlx": MagicMock(), "mlx.core": mock_mx, "mlx_lm": mock_mlx}
+        ):
             with patch("app.core.model_manager.settings") as mock_settings:
                 mock_settings.max_tokens = 512
                 mock_settings.temperature = 0.7
