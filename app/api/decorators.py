@@ -48,7 +48,7 @@ def require_model(func: Callable[P, Coroutine[Any, Any, T]]) -> Callable[P, Coro
             )
         return await func(*args, **kwargs)
 
-    return wrapper  # type: ignore[return-value]
+    return wrapper
 
 
 def timed(func: Callable[P, Coroutine[Any, Any, T]]) -> Callable[P, Coroutine[Any, Any, T]]:
@@ -78,4 +78,4 @@ def timed(func: Callable[P, Coroutine[Any, Any, T]]) -> Callable[P, Coroutine[An
             logger.debug("%s failed after %.3fs", func.__name__, elapsed)
             raise
 
-    return wrapper  # type: ignore[return-value]
+    return wrapper

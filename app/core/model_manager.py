@@ -301,7 +301,8 @@ class ModelManager:
             import mlx_lm  # Lazy import; only needed at load time
 
             # Load from local path (offline after first download)
-            self._model, self._tokenizer = mlx_lm.load(str(local_path))
+            result = mlx_lm.load(str(local_path))
+            self._model, self._tokenizer = result[0], result[1]
             self._model_id = model_id
             self._stop_strings = self._derive_stop_strings()
             logger.info(

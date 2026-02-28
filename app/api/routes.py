@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -19,6 +20,7 @@ from app.core.model_manager import (
 )
 from app.schemas.openai import (
     ChatCompletionRequest,
+    ChatCompletionResponse,
     ModelCard,
     ModelList,
     SupportedModelList,
@@ -58,7 +60,9 @@ async def list_supported_models() -> SupportedModelList:
 @router.post("/v1/chat/completions")
 @require_model  # Decorator: returns 503 if model not loaded
 @timed  # Decorator: logs wall-clock time per request
-async def chat_completions(req: ChatCompletionRequest):
+async def chat_completions(
+    req: ChatCompletionRequest,
+) -> ChatCompletionResponse | StreamingResponse:
     """
     OpenAI-compatible chat completions endpoint.
 
@@ -73,7 +77,9 @@ async def chat_completions(req: ChatCompletionRequest):
     """
 
     # Override per-request generation params if provided
-    def per_request_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict:
+    def per_request_strategy(
+        *, max_tokens: int, temperature: float, top_p: float
+    ) -> dict[str, Any]:
         return default_strategy(
             max_tokens=req.max_tokens or max_tokens,
             temperature=req.temperature if req.temperature is not None else temperature,
@@ -106,7 +112,7 @@ class ModelActionRequest(BaseModel):
 
 
 @router.get("/v1/models/status")
-async def models_status():
+async def models_status() -> dict[str, Any]:
     """
     Return full status for every known model: size, feasibility, download state,
     whether it's the currently active model, and if a HuggingFace token is needed.
@@ -147,7 +153,7 @@ async def models_status():
 
 
 @router.post("/v1/models/download")
-async def download_model(req: ModelActionRequest):
+async def download_model(req: ModelActionRequest) -> dict[str, str]:
     """Trigger a background download for a model. Returns immediately."""
     mid = req.model_id
     if model_manager.is_downloaded(mid):
@@ -156,7 +162,7 @@ async def download_model(req: ModelActionRequest):
     if _download_state.get(mid) == "downloading":
         return {"status": "already_downloading"}
 
-    def _bg_download():
+    def _bg_download() -> None:
         _download_state[mid] = "downloading"
         try:
             model_manager.download_model(mid)
@@ -169,7 +175,7 @@ async def download_model(req: ModelActionRequest):
 
 
 @router.post("/v1/models/load")
-async def load_model(req: ModelActionRequest):
+async def load_model(req: ModelActionRequest) -> dict[str, str]:
     """Switch the active model. Downloads first if not already on disk."""
     mid = req.model_id
     if model_manager.model_id == mid:
@@ -186,7 +192,7 @@ async def load_model(req: ModelActionRequest):
 
 
 @router.delete("/v1/models/{model_id:path}")
-async def delete_model(model_id: str):
+async def delete_model(model_id: str) -> dict[str, str]:
     """Delete a downloaded model's weights from disk."""
     if not model_manager.is_downloaded(model_id):
         raise HTTPException(status_code=404, detail="Model not found on disk.")
