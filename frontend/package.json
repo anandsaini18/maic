@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@types/dompurify": "^3.0.5",
+    "@types/dompurify": "^3.2.0",
     "dompurify": "^3.3.1",
     "highlight.js": "^11.8.0",
     "marked": "^11.1.1",
