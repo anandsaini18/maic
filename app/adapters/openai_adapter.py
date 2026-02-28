@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Literal
 
 import psutil
 
-from app.core.model_manager import FEASIBLE_BY_RAM, KNOWN_MODEL_SIZES, TOKEN_REQUIRED_MODELS
+from app.core.model_manager import FEASIBLE_BY_RAM, TOKEN_REQUIRED_MODELS
 from app.core.token_stream import TokenStream
 from app.schemas.openai import (
     ChatChoice,
@@ -19,8 +19,8 @@ from app.schemas.openai import (
     UsageInfo,
 )
 
-
 # ── Adapter Pattern ───────────────────────────────────────────────────────────
+
 
 class OpenAIAdapter:
     """
@@ -35,7 +35,7 @@ class OpenAIAdapter:
     """
 
     @staticmethod
-    def messages_to_dicts(messages: list[Message]) -> list[dict]:
+    def messages_to_dicts(messages: list[Message]) -> list[dict[str, str]]:
         """
         Convert Pydantic Message objects into plain dicts that mlx_lm's chat
         template formatter understands (it expects {'role': ..., 'content': ...}).
@@ -54,7 +54,7 @@ class OpenAIAdapter:
         """
         text = stream.collect()
         token_count = stream.token_count
-        finish_reason = (
+        finish_reason: Literal["stop", "length"] = (
             "length" if request_max_tokens and token_count >= request_max_tokens else "stop"
         )
         return ChatCompletionResponse(
@@ -131,7 +131,7 @@ class OpenAIAdapter:
         fits within 80% of that RAM. Returns the full list so a UI can show which
         models are usable on this machine right now and which require a token.
         """
-        available_gb = psutil.virtual_memory().total / (1024 ** 3)
+        available_gb = psutil.virtual_memory().total / (1024**3)
         safe_limit = available_gb * 0.8
 
         models = [

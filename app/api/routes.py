@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -33,6 +34,7 @@ _download_state: dict[str, str] = {}  # model_id → "downloading" | "done" | "e
 
 # ── /v1/models ────────────────────────────────────────────────────────────────
 
+
 @router.get("/v1/models", response_model=ModelList)
 async def list_models() -> ModelList:
     """Return the currently loaded model in OpenAI models-list format."""
@@ -41,6 +43,7 @@ async def list_models() -> ModelList:
 
 
 # ── /v1/models/supported ─────────────────────────────────────────────────────
+
 
 @router.get("/v1/models/supported", response_model=SupportedModelList)
 async def list_supported_models() -> SupportedModelList:
@@ -53,10 +56,13 @@ async def list_supported_models() -> SupportedModelList:
 
 # ── /v1/chat/completions ──────────────────────────────────────────────────────
 
-@router.post("/v1/chat/completions")
-@require_model   # Decorator: returns 503 if model not loaded
-@timed           # Decorator: logs wall-clock time per request
-async def chat_completions(req: ChatCompletionRequest):
+
+@router.post("/v1/chat/completions", response_model=None)
+@require_model  # Decorator: returns 503 if model not loaded
+@timed  # Decorator: logs wall-clock time per request
+async def chat_completions(
+    req: ChatCompletionRequest,
+) -> ChatCompletionResponse | StreamingResponse:
     """
     OpenAI-compatible chat completions endpoint.
 
@@ -69,8 +75,11 @@ async def chat_completions(req: ChatCompletionRequest):
       Iterator  — TokenStream consumed by OpenAIAdapter
       Adapter   — OpenAIAdapter converts TokenStream ↔ OpenAI wire format
     """
+
     # Override per-request generation params if provided
-    def per_request_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict:
+    def per_request_strategy(
+        *, max_tokens: int, temperature: float, top_p: float
+    ) -> dict[str, Any]:
         return default_strategy(
             max_tokens=req.max_tokens or max_tokens,
             temperature=req.temperature if req.temperature is not None else temperature,
@@ -97,40 +106,44 @@ async def chat_completions(req: ChatCompletionRequest):
 
 # ── Model management endpoints (for the UI) ─────────────────────────────────
 
+
 class ModelActionRequest(BaseModel):
     model_id: str
 
 
 @router.get("/v1/models/status")
-async def models_status():
+async def models_status() -> dict[str, Any]:
     """
     Return full status for every known model: size, feasibility, download state,
     whether it's the currently active model, and if a HuggingFace token is needed.
     The UI polls this to render the model selector.
     """
     import psutil
-    available_gb = psutil.virtual_memory().total / (1024 ** 3)
+
+    available_gb = psutil.virtual_memory().total / (1024**3)
     safe_limit = available_gb * 0.8
 
     models = []
     for mid, size in sorted(KNOWN_MODEL_SIZES.items(), key=lambda x: x[1]):
         downloaded = model_manager.is_downloaded(mid)
-        models.append({
-            "id": mid,
-            "name": mid.split("/")[-1],
-            "size_gb": size,
-            "feasible": size <= safe_limit,
-            "downloaded": downloaded,
-            "disk_gb": model_manager.disk_size_gb(mid) if downloaded else None,
-            "active": model_manager.model_id == mid,
-            "requires_token": mid in TOKEN_REQUIRED_MODELS,
-            "downloading": _download_state.get(mid) == "downloading",
-            "download_error": (
-                _download_state[mid].removeprefix("error: ")
-                if _download_state.get(mid, "").startswith("error:")
-                else None
-            ),
-        })
+        models.append(
+            {
+                "id": mid,
+                "name": mid.split("/")[-1],
+                "size_gb": size,
+                "feasible": size <= safe_limit,
+                "downloaded": downloaded,
+                "disk_gb": model_manager.disk_size_gb(mid) if downloaded else None,
+                "active": model_manager.model_id == mid,
+                "requires_token": mid in TOKEN_REQUIRED_MODELS,
+                "downloading": _download_state.get(mid) == "downloading",
+                "download_error": (
+                    _download_state[mid].removeprefix("error: ")
+                    if _download_state.get(mid, "").startswith("error:")
+                    else None
+                ),
+            }
+        )
 
     return {
         "available_ram_gb": round(available_gb, 1),
@@ -140,7 +153,7 @@ async def models_status():
 
 
 @router.post("/v1/models/download")
-async def download_model(req: ModelActionRequest):
+async def download_model(req: ModelActionRequest) -> dict[str, str]:
     """Trigger a background download for a model. Returns immediately."""
     mid = req.model_id
     if model_manager.is_downloaded(mid):
@@ -149,7 +162,7 @@ async def download_model(req: ModelActionRequest):
     if _download_state.get(mid) == "downloading":
         return {"status": "already_downloading"}
 
-    def _bg_download():
+    def _bg_download() -> None:
         _download_state[mid] = "downloading"
         try:
             model_manager.download_model(mid)
@@ -162,7 +175,7 @@ async def download_model(req: ModelActionRequest):
 
 
 @router.post("/v1/models/load")
-async def load_model(req: ModelActionRequest):
+async def load_model(req: ModelActionRequest) -> dict[str, str]:
     """Switch the active model. Downloads first if not already on disk."""
     mid = req.model_id
     if model_manager.model_id == mid:
@@ -171,15 +184,15 @@ async def load_model(req: ModelActionRequest):
     try:
         model_manager.load(mid)
     except ModelTooLargeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ModelLoadError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"status": "loaded", "active_model": mid}
 
 
 @router.delete("/v1/models/{model_id:path}")
-async def delete_model(model_id: str):
+async def delete_model(model_id: str) -> dict[str, str]:
     """Delete a downloaded model's weights from disk."""
     if not model_manager.is_downloaded(model_id):
         raise HTTPException(status_code=404, detail="Model not found on disk.")
@@ -187,6 +200,6 @@ async def delete_model(model_id: str):
     try:
         model_manager.delete_model(model_id)
     except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return {"status": "deleted"}

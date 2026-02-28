@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Generator
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import psutil
 
@@ -56,7 +57,8 @@ def _ensure_model_downloaded(model_id: str, local_path: Path) -> None:
     snapshot_download(
         repo_id=model_id,
         local_dir=str(local_path),
-        ignore_patterns=["*.bin", "original/*"],  # Skip PyTorch weights; MLX uses only safetensors
+        # Skip PyTorch weights; MLX uses only safetensors
+        ignore_patterns=["*.bin", "original/*"],
     )
     logger.info("Download complete: %s", local_path)
 
@@ -68,7 +70,7 @@ def _ensure_model_downloaded(model_id: str, local_path: Path) -> None:
 KNOWN_MODEL_SIZES: dict[str, float] = {
     # Open models (no token required)
     "mlx-community/SmolLM2-1.7B-Instruct-4bit": 1.0,
-    "mlx-community/Phi-3.5-mini-instruct-4bit": 2.3,       # ← default
+    "mlx-community/Phi-3.5-mini-instruct-4bit": 2.3,  # ← default
     "mlx-community/Qwen3-4B-Instruct-2507-4bit": 2.5,
     "mlx-community/gemma-3-4b-it-4bit": 2.6,
     "mlx-community/Mistral-7B-Instruct-v0.3-4bit": 4.0,
@@ -83,20 +85,21 @@ KNOWN_MODEL_SIZES: dict[str, float] = {
 }
 
 # Models requiring HuggingFace authentication (gated behind license agreements)
-TOKEN_REQUIRED_MODELS: frozenset[str] = frozenset({
-    "mlx-community/Llama-3.2-1B-Instruct-4bit",
-    "mlx-community/Llama-3.2-3B-Instruct-4bit",
-    "mlx-community/Llama-3.1-8B-Instruct-4bit",
-    "mlx-community/Llama-3.3-70B-Instruct-4bit",
-})
+TOKEN_REQUIRED_MODELS: frozenset[str] = frozenset(
+    {
+        "mlx-community/Llama-3.2-1B-Instruct-4bit",
+        "mlx-community/Llama-3.2-3B-Instruct-4bit",
+        "mlx-community/Llama-3.1-8B-Instruct-4bit",
+        "mlx-community/Llama-3.3-70B-Instruct-4bit",
+    }
+)
 
 # Sorted by size for easy lookup by RAM tier
-FEASIBLE_BY_RAM: list[tuple[float, str]] = sorted(
-    KNOWN_MODEL_SIZES.items(), key=lambda x: x[1]
-)
+FEASIBLE_BY_RAM: list[tuple[str, float]] = sorted(KNOWN_MODEL_SIZES.items(), key=lambda x: x[1])
 
 
 # ── Custom Exceptions ─────────────────────────────────────────────────────────
+
 
 class ModelTooLargeError(RuntimeError):
     """Raised when the requested model needs more RAM than this machine safely has."""
@@ -107,6 +110,7 @@ class ModelLoadError(RuntimeError):
 
 
 # ── Observer Pattern ──────────────────────────────────────────────────────────
+
 
 @runtime_checkable
 class InferenceObserver(Protocol):
@@ -119,8 +123,9 @@ class InferenceObserver(Protocol):
 
     Register with: model_manager.register_observer(your_observer)
     """
+
     def on_token(self, token: str) -> None: ...
-    def on_complete(self, stats: dict) -> None: ...
+    def on_complete(self, stats: dict[str, Any]) -> None: ...
     def on_error(self, error: Exception) -> None: ...
 
 
@@ -136,7 +141,7 @@ class StatsObserver:
     def on_token(self, token: str) -> None:
         pass  # no-op per token; stats aggregated at on_complete
 
-    def on_complete(self, stats: dict) -> None:
+    def on_complete(self, stats: dict[str, Any]) -> None:
         logger.info(
             "Inference complete — %d tokens in %.2fs (%.1f tok/s)",
             stats["token_count"],
@@ -149,6 +154,7 @@ class StatsObserver:
 
 
 # ── Facade Pattern ────────────────────────────────────────────────────────────
+
 
 class ModelManager:
     """
@@ -163,8 +169,8 @@ class ModelManager:
     """
 
     def __init__(self) -> None:
-        self._model = None
-        self._tokenizer = None
+        self._model: Any = None
+        self._tokenizer: Any = None
         self._model_id: str | None = None
         self._observers: list[InferenceObserver] = [StatsObserver()]
         # Populated after load() — text forms of all EOS tokens for stop-string detection
@@ -181,7 +187,7 @@ class ModelManager:
         for obs in self._observers:
             obs.on_token(token)
 
-    def _notify_complete(self, stats: dict) -> None:
+    def _notify_complete(self, stats: dict[str, Any]) -> None:
         """Broadcast generation-complete stats (token count, speed) to all observers."""
         for obs in self._observers:
             obs.on_complete(stats)
@@ -204,14 +210,12 @@ class ModelManager:
         if required_gb is None:
             return  # Model size unknown; let MLX attempt to load it
 
-        available_gb = psutil.virtual_memory().total / (1024 ** 3)
+        available_gb = psutil.virtual_memory().total / (1024**3)
         safe_limit = available_gb * 0.8  # Use only 80% to leave headroom for system
 
         if required_gb > safe_limit:
             feasible = [
-                f"  - {mid} (~{size:.1f} GB)"
-                for mid, size in FEASIBLE_BY_RAM
-                if size <= safe_limit
+                f"  - {mid} (~{size:.1f} GB)" for mid, size in FEASIBLE_BY_RAM if size <= safe_limit
             ]
             feasible_str = "\n".join(feasible) if feasible else "  (none in known list)"
             raise ModelTooLargeError(
@@ -261,7 +265,7 @@ class ModelManager:
                         if s:
                             stop.add(s)
                             # Register with tokenizer for native token-level detection
-                            self._tokenizer.add_eos_token(str(eid))
+                            self._tokenizer.add_eos_token(s)
                     break
         except Exception as exc:
             logger.debug("Chat template probe failed: %s", exc)
@@ -286,17 +290,19 @@ class ModelManager:
         try:
             _ensure_model_downloaded(model_id, local_path)
         except Exception as exc:
+            logger.error("Failed to download model '%s': %s", model_id, exc, exc_info=True)
             raise ModelLoadError(
-                f"\n\n❌  Failed to download model '{model_id}'.\n"
-                f"Reason: {exc}\n\n"
-                f"Tip: check the model ID, internet connection, or HF token for gated models.\n"
+                f"Failed to download model '{model_id}'. "
+                f"Check the model ID, your internet connection, or your HF token for gated models."
             ) from exc
 
         logger.info("Loading model from '%s' …", local_path)
         try:
             import mlx_lm  # Lazy import; only needed at load time
+
             # Load from local path (offline after first download)
-            self._model, self._tokenizer = mlx_lm.load(str(local_path))
+            result = mlx_lm.load(str(local_path))
+            self._model, self._tokenizer = result[0], result[1]
             self._model_id = model_id
             self._stop_strings = self._derive_stop_strings()
             logger.info(
@@ -305,10 +311,10 @@ class ModelManager:
                 self._stop_strings,
             )
         except Exception as exc:
+            logger.error("Failed to load model '%s' from disk: %s", model_id, exc, exc_info=True)
             raise ModelLoadError(
-                f"\n\n❌  Failed to load model from '{local_path}'.\n"
-                f"Reason: {exc}\n\n"
-                f"Tip: the local files may be corrupted — delete '{local_path}' and restart.\n"
+                f"Failed to load model '{model_id}'. "
+                f"The local files may be corrupted — try re-downloading the model."
             ) from exc
 
     @property
@@ -325,7 +331,7 @@ class ModelManager:
 
     def generate(
         self,
-        messages: list[dict],
+        messages: list[dict[str, str]],
         strategy: GenerationStrategy,
     ) -> TokenStream:
         """
@@ -375,7 +381,7 @@ class ModelManager:
         # Rolling buffer to catch stop strings spanning chunk boundaries
         max_suffix = max((len(s) for s in stop_strings), default=0)
 
-        def _observed() -> object:
+        def _observed() -> Generator[str, None, None]:
             """
             Three-layer stop detection: native EOS → length limit → text patterns.
 
@@ -407,9 +413,10 @@ class ModelManager:
 
                     # Layer 1: MLX detected native EOS token
                     if token_response.finish_reason == "stop":
-                        clean = suffix
-                        for s in stop_strings:
-                            clean = clean.split(s)[0]
+                        # Trim at the rightmost stop string to preserve any
+                        # stop-string-like content legitimately generated earlier.
+                        positions = [suffix.rfind(s) for s in stop_strings if s in suffix]
+                        clean = suffix[: max(positions)] if positions else suffix
                         if clean:
                             self._notify_token(clean)
                             yield clean
@@ -422,9 +429,9 @@ class ModelManager:
                         break
 
                     # Layer 3: Stop string found in accumulated text
-                    stop_hit = next((s for s in stop_strings if s in suffix), None)
-                    if stop_hit:
-                        clean = suffix.split(stop_hit)[0]
+                    positions = [suffix.rfind(s) for s in stop_strings if s in suffix]
+                    if positions:
+                        clean = suffix[: max(positions)]
                         if clean:
                             self._notify_token(clean)
                             yield clean
@@ -435,7 +442,7 @@ class ModelManager:
                     if safe:
                         self._notify_token(safe)
                         yield safe
-                    suffix = suffix[len(safe):]
+                    suffix = suffix[len(safe) :]
 
             except Exception as exc:
                 self._notify_error(exc)
@@ -451,16 +458,17 @@ class ModelManager:
             try:
                 return original_next()
             except StopIteration:
-                self._notify_complete({
-                    "token_count": stream.token_count,
-                    "elapsed": stream.elapsed,
-                    "tokens_per_second": stream.tokens_per_second,
-                })
+                self._notify_complete(
+                    {
+                        "token_count": stream.token_count,
+                        "elapsed": stream.elapsed,
+                        "tokens_per_second": stream.tokens_per_second,
+                    }
+                )
                 raise
 
         stream.__next__ = _completing_next  # type: ignore[method-assign]
         return stream
-
 
     # ── Model management (for UI) ────────────────────────────────────────────
 
@@ -479,6 +487,7 @@ class ModelManager:
         local_path = _model_local_path(model_id)
         if local_path.exists():
             import shutil
+
             shutil.rmtree(local_path)
             logger.info("Deleted model weights at '%s'", local_path)
 
@@ -494,7 +503,7 @@ class ModelManager:
         if not local_path.exists():
             return None
         total = sum(f.stat().st_size for f in local_path.rglob("*") if f.is_file())
-        return round(total / (1024 ** 3), 2)
+        return round(total / (1024**3), 2)
 
 
 # Module-level singleton instance used throughout the app

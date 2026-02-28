@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 # ── Strategy Pattern ──────────────────────────────────────────────────────────
+
 
 @runtime_checkable
 class GenerationStrategy(Protocol):
@@ -17,16 +17,17 @@ class GenerationStrategy(Protocol):
     different one per request without changing ModelManager at all. The strategy
     returns a kwargs dict that gets unpacked straight into mlx_lm.stream_generate().
     """
+
     def __call__(
         self,
         *,
         max_tokens: int,
         temperature: float,
         top_p: float,
-    ) -> dict: ...
+    ) -> dict[str, Any]: ...
 
 
-def default_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict:
+def default_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict[str, Any]:
     """
     Standard sampling: pick tokens randomly weighted by probability.
 
@@ -35,13 +36,14 @@ def default_strategy(*, max_tokens: int, temperature: float, top_p: float) -> di
     This is the strategy used for normal chat responses.
     """
     from mlx_lm.sample_utils import make_sampler
+
     return {
         "max_tokens": max_tokens,
         "sampler": make_sampler(temp=temperature, top_p=top_p),
     }
 
 
-def greedy_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict:
+def greedy_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict[str, Any]:
     """
     Greedy decoding: always pick the single most probable next token (temp=0).
 
@@ -50,6 +52,7 @@ def greedy_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dic
     The temperature and top_p arguments are ignored here.
     """
     from mlx_lm.sample_utils import make_sampler
+
     return {
         "max_tokens": max_tokens,
         "sampler": make_sampler(temp=0.0),
@@ -57,6 +60,7 @@ def greedy_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dic
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────
+
 
 class Settings(BaseSettings):
     """
@@ -68,6 +72,7 @@ class Settings(BaseSettings):
     models_dir is intentionally separate from the HuggingFace cache — it survives
     .env deletion and can point to an external drive if your internal disk is tight.
     """
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     model_id: str = "mlx-community/Phi-3.5-mini-instruct-4bit"

@@ -26,11 +26,15 @@ export function useModels({ showToast, clearConversation }: UseModelsOpts) {
     }
   }, []);
 
-  /* Poll every 3 s. */
+  /* Poll every 3 s, with an immediate first fetch. */
   useEffect(() => {
-    refresh();
     pollRef.current = setInterval(refresh, 3000);
-    return () => clearInterval(pollRef.current);
+    /* Schedule first fetch outside the synchronous effect body. */
+    const t = setTimeout(refresh, 0);
+    return () => {
+      clearInterval(pollRef.current);
+      clearTimeout(t);
+    };
   }, [refresh]);
 
   const download = useCallback(

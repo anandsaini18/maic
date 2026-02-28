@@ -83,6 +83,7 @@ def create_app(model_id: str) -> FastAPI:
 
     # Serve the Vite-built frontend at the root
     from pathlib import Path
+
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
 
