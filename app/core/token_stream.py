@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import time
-from typing import Generator
-
+from collections.abc import Generator
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Token stream wrapper — provides iteration + performance metrics
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TokenStream:
     """
@@ -41,7 +41,7 @@ class TokenStream:
     # Iterator protocol — allows 'for token in stream:' syntax
     # ─────────────────────────────────────────────────────────────────────────
 
-    def __iter__(self) -> "TokenStream":
+    def __iter__(self) -> TokenStream:
         """Return self to implement iterator protocol."""
         return self
 

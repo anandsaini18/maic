@@ -36,9 +36,7 @@ class TestMessage:
 
 class TestChatCompletionRequest:
     def test_defaults(self):
-        req = ChatCompletionRequest(
-            model="m", messages=[Message(role="user", content="hi")]
-        )
+        req = ChatCompletionRequest(model="m", messages=[Message(role="user", content="hi")])
         assert req.stream is False
         assert req.max_tokens is None
         assert req.temperature is None

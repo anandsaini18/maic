@@ -1,23 +1,21 @@
 """Unit tests for model manager, loading, and generation logic."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch, call
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
 from app.core.model_manager import (
-    _model_local_path,
-    _ensure_model_downloaded,
     KNOWN_MODEL_SIZES,
     TOKEN_REQUIRED_MODELS,
-    ModelTooLargeError,
-    ModelLoadError,
     InferenceObserver,
-    StatsObserver,
+    ModelLoadError,
     ModelManager,
-    model_manager,
+    ModelTooLargeError,
+    StatsObserver,
+    _ensure_model_downloaded,
+    _model_local_path,
 )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tests for _model_local_path
@@ -180,8 +178,7 @@ class TestCheckRAM:
             mock_mem.return_value.available = 2 * (1024**3)
 
             with pytest.raises(ModelTooLargeError) as exc_info:
-                mm._check_ram(
-                    "mlx-community/Mistral-7B-Instruct-v0.3-4bit")  # 4.0GB
+                mm._check_ram("mlx-community/Mistral-7B-Instruct-v0.3-4bit")  # 4.0GB
 
             assert "Feasible alternatives" in str(exc_info.value)
 
@@ -201,8 +198,7 @@ class TestCheckRAM:
             mock_mem.return_value.available = 3 * (1024**3)
 
             with pytest.raises(ModelTooLargeError) as exc_info:
-                mm._check_ram(
-                    "mlx-community/Mistral-7B-Instruct-v0.3-4bit")  # 4.0GB
+                mm._check_ram("mlx-community/Mistral-7B-Instruct-v0.3-4bit")  # 4.0GB
 
             error_msg = str(exc_info.value)
             # Should suggest smaller feasible models
@@ -218,8 +214,7 @@ class TestCheckRAM:
 
             # 8GB model at 80% should fail
             with pytest.raises(ModelTooLargeError):
-                mm._check_ram(
-                    "mlx-community/Llama-3.3-70B-Instruct-4bit")  # 40GB
+                mm._check_ram("mlx-community/Llama-3.3-70B-Instruct-4bit")  # 40GB
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -292,8 +287,7 @@ class TestObserverPattern:
         observer = StatsObserver()
 
         with patch("app.core.model_manager.logger") as mock_logger:
-            stats = {"token_count": 42, "elapsed": 2.0,
-                     "tokens_per_second": 21.0}
+            stats = {"token_count": 42, "elapsed": 2.0, "tokens_per_second": 21.0}
             observer.on_complete(stats)
 
             # Should log with correct values
@@ -355,21 +349,22 @@ class TestModelLoad:
                 mm.load("test/model")
 
             assert "Failed to download" in str(exc_info.value)
-            assert "Network error" in str(exc_info.value)
+            assert "Network error" not in str(exc_info.value)
 
-    @patch("app.core.model_manager.mlx_lm.load")
     @patch("app.core.model_manager._ensure_model_downloaded")
-    def test_load_wraps_mlx_errors(self, mock_download, mock_mlx_load):
+    def test_load_wraps_mlx_errors(self, mock_download):
         """Should wrap MLX loading errors in ModelLoadError."""
         mm = ModelManager()
-        mock_mlx_load.side_effect = Exception("MLX error")
+        mock_mlx = MagicMock()
+        mock_mlx.load.side_effect = Exception("MLX error")
 
         with patch.object(mm, "_check_ram"):
-            with patch.object(mm, "_derive_stop_strings"):
+            with patch.dict("sys.modules", {"mlx_lm": mock_mlx}):
                 with pytest.raises(ModelLoadError) as exc_info:
                     mm.load("test/model")
 
                 assert "Failed to load" in str(exc_info.value)
+                assert "MLX error" not in str(exc_info.value)
 
     def test_is_loaded_property(self):
         """is_loaded should reflect model state."""
@@ -425,7 +420,6 @@ class TestDeriveStopStrings:
         mock_tokenizer.eos_token_ids = []
 
         # Simulate chat template response
-        SENTINEL = "\x01\x02\x03"
         mock_tokenizer.apply_chat_template.return_value = [1, 2, 3, 999]
         mock_tokenizer.encode.return_value = [1, 2, 3]
         mock_tokenizer.decode.side_effect = lambda ids: {
@@ -458,8 +452,7 @@ class TestDeriveStopStrings:
         mock_tokenizer = Mock()
         mock_tokenizer.eos_token_ids = [100]
         mock_tokenizer.decode.return_value = "<|end|>"
-        mock_tokenizer.apply_chat_template.side_effect = Exception(
-            "Template error")
+        mock_tokenizer.apply_chat_template.side_effect = Exception("Template error")
 
         mm._tokenizer = mock_tokenizer
 
@@ -638,3 +631,91 @@ class TestPathSecurity:
 
         # Should still append to models dir
         assert str(result).startswith("/safe/models")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests for stop string trimming in _observed (Layer 1 and Layer 3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestStopStringTrimming:
+    """Verify that Layer 1 and Layer 3 trim at the rightmost stop string,
+    preserving any stop-string-like text that appeared earlier in content."""
+
+    def _make_resp(self, text, finish_reason=None):
+        r = Mock()
+        r.text = text
+        r.finish_reason = finish_reason
+        return r
+
+    def _collect(self, mm, responses):
+        """Wire up generate() with mocked MLX internals and return joined output."""
+        mock_mx = MagicMock()
+        mock_mlx = MagicMock()
+        mock_mlx.stream_generate.return_value = iter(responses)
+        strategy = Mock(return_value={})
+        with patch.dict("sys.modules", {"mlx.core": mock_mx, "mlx_lm": mock_mlx}):
+            with patch("app.core.model_manager.settings") as mock_settings:
+                mock_settings.max_tokens = 512
+                mock_settings.temperature = 0.7
+                mock_settings.top_p = 0.9
+                stream = mm.generate([], strategy)
+                return "".join(stream)
+
+    def _make_mm(self, stop_strings):
+        mm = ModelManager()
+        mm._model = Mock()
+        mm._tokenizer = Mock()
+        mm._tokenizer.apply_chat_template.return_value = [1, 2, 3]
+        mm._stop_strings = frozenset(stop_strings)
+        return mm
+
+    # ── Layer 1 ──────────────────────────────────────────────────────────────
+
+    def test_layer1_simple_trim(self):
+        """Layer 1: trim the single EOS token at the end."""
+        mm = self._make_mm({"<|im_end|>"})
+        result = self._collect(mm, [self._make_resp("Hello world <|im_end|>", "stop")])
+        assert result == "Hello world "
+
+    def test_layer1_no_stop_string_leaked(self):
+        """Layer 1: if no stop string leaked into text, yield the full suffix."""
+        mm = self._make_mm({"<|im_end|>"})
+        result = self._collect(mm, [self._make_resp("Hello world", "stop")])
+        assert result == "Hello world"
+
+    def test_layer1_trims_rightmost_preserves_earlier_content(self):
+        """Layer 1: with two stop strings in suffix, trim at the rightmost one.
+
+        Old code applied split() for every stop string in frozenset order (arbitrary),
+        which could remove text before the actual EOS marker.  The new code finds
+        the rightmost occurrence of any stop string and trims only there.
+        """
+        mm = self._make_mm({"<|end|>", "<|im_end|>"})
+        # <|end|> appears at position 6; <|im_end|> is the actual EOS at position 28.
+        suffix = "Note: <|end|> ends the turn <|im_end|>"
+        result = self._collect(mm, [self._make_resp(suffix, "stop")])
+        assert result == "Note: <|end|> ends the turn "
+        assert "<|im_end|>" not in result
+
+    # ── Layer 3 ──────────────────────────────────────────────────────────────
+
+    def test_layer3_trims_rightmost_not_frozenset_first(self):
+        """Layer 3: trim at the rightmost stop string, not whichever frozenset yields first.
+
+        Old code used next() on a frozenset (arbitrary iteration order), so it could
+        pick an earlier stop string and over-trim.  The new code always finds the
+        rightmost occurrence.
+        """
+        mm = self._make_mm({"<|end|>", "<|im_end|>"})
+        # Both stop strings fit within the rolling window (max_suffix=11),
+        # so the whole chunk stays in suffix and Layer 3 fires.
+        result = self._collect(mm, [self._make_resp("X<|end|>Y<|im_end|>")])
+        assert result == "X<|end|>Y"
+        assert "<|im_end|>" not in result
+
+    def test_layer3_single_stop_string(self):
+        """Layer 3: basic case with a single stop string."""
+        mm = self._make_mm({"<|im_end|>"})
+        result = self._collect(mm, [self._make_resp("Hi<|im_end|>")])
+        assert result == "Hi"

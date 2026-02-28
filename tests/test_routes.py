@@ -15,12 +15,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.routes import router, _download_state
+from app.api.routes import _download_state, router
 from app.core.model_manager import ModelLoadError, ModelTooLargeError
 from app.core.token_stream import TokenStream
 
-
 # ── fixtures ─────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def _clean_download_state():
@@ -48,8 +48,10 @@ def client(mm):
 
     # model_manager is imported lazily inside require_model's wrapper,
     # so we must patch it at the source module, not at decorators module level.
-    with patch("app.api.routes.model_manager", mm), \
-            patch("app.core.model_manager.model_manager", mm):
+    with (
+        patch("app.api.routes.model_manager", mm),
+        patch("app.core.model_manager.model_manager", mm),
+    ):
         yield TestClient(app)
 
 
@@ -64,6 +66,7 @@ def _chat_body(**overrides) -> dict:
 
 # ── Chat completions (the core path) ────────────────────────────────────────
 
+
 class TestChatCompletions:
     """POST /v1/chat/completions — the most critical endpoint."""
 
@@ -73,7 +76,9 @@ class TestChatCompletions:
     def test_non_streaming_full_response_shape(self, client, mm):
         self._with_stream(mm, ["Hello", " world"])
 
-        with patch("app.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}):
+        with patch(
+            "app.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
+        ):
             resp = client.post("/v1/chat/completions", json=_chat_body())
 
         assert resp.status_code == 200
@@ -89,15 +94,15 @@ class TestChatCompletions:
     def test_streaming_sse_wire_format(self, client, mm):
         self._with_stream(mm, ["Hi"])
 
-        with patch("app.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}):
-            resp = client.post("/v1/chat/completions",
-                               json=_chat_body(stream=True))
+        with patch(
+            "app.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
+        ):
+            resp = client.post("/v1/chat/completions", json=_chat_body(stream=True))
 
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
 
-        events = [l for l in resp.text.strip().split(
-            "\n\n") if l.startswith("data:")]
+        events = [line for line in resp.text.strip().split("\n\n") if line.startswith("data:")]
         assert len(events) == 4  # role + content + stop + [DONE]
         assert events[-1] == "data: [DONE]"
 
@@ -123,10 +128,11 @@ class TestChatCompletions:
         app = FastAPI()
         app.include_router(router)
 
-        with patch("app.api.routes.model_manager", mm), \
-                patch("app.core.model_manager.model_manager", mm):
-            resp = TestClient(app).post(
-                "/v1/chat/completions", json=_chat_body())
+        with (
+            patch("app.api.routes.model_manager", mm),
+            patch("app.core.model_manager.model_manager", mm),
+        ):
+            resp = TestClient(app).post("/v1/chat/completions", json=_chat_body())
 
         assert resp.status_code == 503
 
@@ -146,8 +152,7 @@ class TestChatCompletions:
         mm.generate.side_effect = fake_generate
 
         with patch("app.api.routes.default_strategy", side_effect=spy):
-            client.post("/v1/chat/completions",
-                        json=_chat_body(temperature=0.0, top_p=0.0))
+            client.post("/v1/chat/completions", json=_chat_body(temperature=0.0, top_p=0.0))
 
         assert captured["temperature"] == 0.0
         assert captured["top_p"] == 0.0
@@ -173,23 +178,23 @@ class TestChatCompletions:
     def test_finish_reason_length_at_limit(self, client, mm):
         self._with_stream(mm, ["a", "b", "c"])
 
-        with patch("app.api.routes.default_strategy", return_value={"max_tokens": 3, "sampler": None}):
-            resp = client.post("/v1/chat/completions",
-                               json=_chat_body(max_tokens=3))
+        with patch(
+            "app.api.routes.default_strategy", return_value={"max_tokens": 3, "sampler": None}
+        ):
+            resp = client.post("/v1/chat/completions", json=_chat_body(max_tokens=3))
 
         assert resp.json()["choices"][0]["finish_reason"] == "length"
 
     def test_invalid_role_returns_422(self, client):
         body = {"model": "m", "messages": [{"role": "tool", "content": "x"}]}
-        assert client.post("/v1/chat/completions",
-                           json=body).status_code == 422
+        assert client.post("/v1/chat/completions", json=body).status_code == 422
 
     def test_missing_messages_returns_422(self, client):
-        assert client.post("/v1/chat/completions",
-                           json={"model": "m"}).status_code == 422
+        assert client.post("/v1/chat/completions", json={"model": "m"}).status_code == 422
 
 
 # ── Model management endpoints ───────────────────────────────────────────────
+
 
 class TestListModels:
     def test_returns_active_model(self, client, mm):
@@ -247,8 +252,7 @@ class TestDownloadModel:
 
     def test_starts_thread(self, client, mm):
         with patch("app.api.routes.threading") as mock_t:
-            resp = client.post("/v1/models/download",
-                               json={"model_id": "org/m"})
+            resp = client.post("/v1/models/download", json={"model_id": "org/m"})
         assert resp.json()["status"] == "started"
         mock_t.Thread.assert_called_once()
 
@@ -256,14 +260,12 @@ class TestDownloadModel:
 class TestDeleteModel:
     def test_404_when_not_downloaded(self, client, mm):
         mm.is_downloaded.return_value = False
-        assert client.request(
-            "DELETE", "/v1/models/org/model").status_code == 404
+        assert client.request("DELETE", "/v1/models/org/model").status_code == 404
 
     def test_409_when_active(self, client, mm):
         mm.is_downloaded.return_value = True
         mm.delete_model.side_effect = RuntimeError("active")
-        assert client.request(
-            "DELETE", "/v1/models/org/model").status_code == 409
+        assert client.request("DELETE", "/v1/models/org/model").status_code == 409
 
     def test_success(self, client, mm):
         mm.is_downloaded.return_value = True
@@ -277,7 +279,7 @@ class TestModelsStatus:
     @patch("psutil.virtual_memory")
     def test_response_shape(self, mock_vm, client, mm):
         mem = Mock()
-        mem.total = 16 * (1024 ** 3)
+        mem.total = 16 * (1024**3)
         mock_vm.return_value = mem
         mm.model_id = "org/active"
 
@@ -295,11 +297,12 @@ class TestModelsStatus:
     @patch("psutil.virtual_memory")
     def test_download_error_extracted(self, mock_vm, client, mm):
         mem = Mock()
-        mem.total = 16 * (1024 ** 3)
+        mem.total = 16 * (1024**3)
         mock_vm.return_value = mem
         mm.model_id = None
 
         from app.core.model_manager import KNOWN_MODEL_SIZES
+
         mid = next(iter(KNOWN_MODEL_SIZES))
         _download_state[mid] = "error: connection timeout"
 

@@ -2,7 +2,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   useCallback,
-  useRef,
+  useState,
 } from "react";
 
 interface Props {
@@ -18,7 +18,7 @@ export default function ChatInput({
   onSend,
   inputRef,
 }: Props) {
-  const tokenCount = useRef(0);
+  const [tokenCount, setTokenCount] = useState(0);
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
@@ -29,7 +29,7 @@ export default function ChatInput({
       if (inputRef.current) {
         inputRef.current.value = "";
         inputRef.current.style.height = "auto";
-        tokenCount.current = 0;
+        setTokenCount(0);
       }
     },
     [isGenerating, onSend, inputRef],
@@ -50,12 +50,12 @@ export default function ChatInput({
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-    tokenCount.current = Math.ceil(el.value.trim().length / 4);
+    setTokenCount(Math.ceil(el.value.trim().length / 4));
   }, [inputRef]);
 
   const pct =
-    tokenCount.current > 0
-      ? Math.round((tokenCount.current / maxTokens) * 100)
+    tokenCount > 0
+      ? Math.round((tokenCount / maxTokens) * 100)
       : 0;
 
   return (
@@ -103,9 +103,9 @@ export default function ChatInput({
           <span className="mx-1.5 text-warm-border">&#183;</span>
           <span className="text-warm-muted/60">&#8679;&#9166;</span> newline
         </span>
-        {tokenCount.current > 0 && (
+        {tokenCount > 0 && (
           <span className={pct > 80 ? "text-red" : ""}>
-            {tokenCount.current} / {maxTokens}
+            {tokenCount} / {maxTokens}
           </span>
         )}
       </div>

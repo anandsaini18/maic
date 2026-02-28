@@ -19,7 +19,6 @@ import pytest
 from app.adapters.openai_adapter import OpenAIAdapter
 from app.core.token_stream import TokenStream
 
-
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -108,25 +107,21 @@ class TestStreamToResponse:
     """Non-streaming response — finish_reason branching is the key logic."""
 
     def test_collects_text_and_usage(self):
-        resp = OpenAIAdapter.stream_to_response(
-            _stream(["Hello", " world"]), "m")
+        resp = OpenAIAdapter.stream_to_response(_stream(["Hello", " world"]), "m")
         assert resp.choices[0].message.content == "Hello world"
         assert resp.usage.completion_tokens == 2
         assert resp.usage.tokens_per_second is not None
 
     def test_finish_reason_stop_when_no_limit(self):
-        resp = OpenAIAdapter.stream_to_response(
-            _stream(["a", "b"]), "m", request_max_tokens=None)
+        resp = OpenAIAdapter.stream_to_response(_stream(["a", "b"]), "m", request_max_tokens=None)
         assert resp.choices[0].finish_reason == "stop"
 
     def test_finish_reason_length_at_exact_limit(self):
-        resp = OpenAIAdapter.stream_to_response(
-            _stream(["a", "b", "c"]), "m", request_max_tokens=3)
+        resp = OpenAIAdapter.stream_to_response(_stream(["a", "b", "c"]), "m", request_max_tokens=3)
         assert resp.choices[0].finish_reason == "length"
 
     def test_finish_reason_stop_when_under_limit(self):
-        resp = OpenAIAdapter.stream_to_response(
-            _stream(["a"]), "m", request_max_tokens=100)
+        resp = OpenAIAdapter.stream_to_response(_stream(["a"]), "m", request_max_tokens=100)
         assert resp.choices[0].finish_reason == "stop"
 
     def test_empty_stream_returns_empty_content(self):

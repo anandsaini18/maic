@@ -8,9 +8,7 @@
     - any-glob-to-any-file:
       - "app/**"
       - "main.py"
-      - "requirements.txt"
-      - "requirements-dev.txt"
-      - "pytest.ini"
+      - "pyproject.toml"
 
 "area: frontend":
   - changed-files:
@@ -22,7 +20,7 @@
   - changed-files:
     - any-glob-to-any-file:
       - "tests/**"
-      - "pytest.ini"
+      - "pyproject.toml"
 
 "area: docs":
   - changed-files:
@@ -70,7 +68,6 @@
 "type: dependencies":
   - changed-files:
     - any-glob-to-any-file:
-      - "requirements.txt"
-      - "requirements-dev.txt"
+      - "pyproject.toml"
       - "frontend/package.json"
       - "frontend/package-lock.json"

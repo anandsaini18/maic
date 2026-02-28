@@ -19,7 +19,6 @@ from app.core.model_manager import (
 )
 from app.schemas.openai import (
     ChatCompletionRequest,
-    ChatCompletionResponse,
     ModelCard,
     ModelList,
     SupportedModelList,
@@ -33,6 +32,7 @@ _download_state: dict[str, str] = {}  # model_id → "downloading" | "done" | "e
 
 # ── /v1/models ────────────────────────────────────────────────────────────────
 
+
 @router.get("/v1/models", response_model=ModelList)
 async def list_models() -> ModelList:
     """Return the currently loaded model in OpenAI models-list format."""
@@ -41,6 +41,7 @@ async def list_models() -> ModelList:
 
 
 # ── /v1/models/supported ─────────────────────────────────────────────────────
+
 
 @router.get("/v1/models/supported", response_model=SupportedModelList)
 async def list_supported_models() -> SupportedModelList:
@@ -53,9 +54,10 @@ async def list_supported_models() -> SupportedModelList:
 
 # ── /v1/chat/completions ──────────────────────────────────────────────────────
 
+
 @router.post("/v1/chat/completions")
-@require_model   # Decorator: returns 503 if model not loaded
-@timed           # Decorator: logs wall-clock time per request
+@require_model  # Decorator: returns 503 if model not loaded
+@timed  # Decorator: logs wall-clock time per request
 async def chat_completions(req: ChatCompletionRequest):
     """
     OpenAI-compatible chat completions endpoint.
@@ -69,6 +71,7 @@ async def chat_completions(req: ChatCompletionRequest):
       Iterator  — TokenStream consumed by OpenAIAdapter
       Adapter   — OpenAIAdapter converts TokenStream ↔ OpenAI wire format
     """
+
     # Override per-request generation params if provided
     def per_request_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict:
         return default_strategy(
@@ -97,6 +100,7 @@ async def chat_completions(req: ChatCompletionRequest):
 
 # ── Model management endpoints (for the UI) ─────────────────────────────────
 
+
 class ModelActionRequest(BaseModel):
     model_id: str
 
@@ -109,28 +113,31 @@ async def models_status():
     The UI polls this to render the model selector.
     """
     import psutil
-    available_gb = psutil.virtual_memory().total / (1024 ** 3)
+
+    available_gb = psutil.virtual_memory().total / (1024**3)
     safe_limit = available_gb * 0.8
 
     models = []
     for mid, size in sorted(KNOWN_MODEL_SIZES.items(), key=lambda x: x[1]):
         downloaded = model_manager.is_downloaded(mid)
-        models.append({
-            "id": mid,
-            "name": mid.split("/")[-1],
-            "size_gb": size,
-            "feasible": size <= safe_limit,
-            "downloaded": downloaded,
-            "disk_gb": model_manager.disk_size_gb(mid) if downloaded else None,
-            "active": model_manager.model_id == mid,
-            "requires_token": mid in TOKEN_REQUIRED_MODELS,
-            "downloading": _download_state.get(mid) == "downloading",
-            "download_error": (
-                _download_state[mid].removeprefix("error: ")
-                if _download_state.get(mid, "").startswith("error:")
-                else None
-            ),
-        })
+        models.append(
+            {
+                "id": mid,
+                "name": mid.split("/")[-1],
+                "size_gb": size,
+                "feasible": size <= safe_limit,
+                "downloaded": downloaded,
+                "disk_gb": model_manager.disk_size_gb(mid) if downloaded else None,
+                "active": model_manager.model_id == mid,
+                "requires_token": mid in TOKEN_REQUIRED_MODELS,
+                "downloading": _download_state.get(mid) == "downloading",
+                "download_error": (
+                    _download_state[mid].removeprefix("error: ")
+                    if _download_state.get(mid, "").startswith("error:")
+                    else None
+                ),
+            }
+        )
 
     return {
         "available_ram_gb": round(available_gb, 1),
@@ -171,9 +178,9 @@ async def load_model(req: ModelActionRequest):
     try:
         model_manager.load(mid)
     except ModelTooLargeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ModelLoadError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"status": "loaded", "active_model": mid}
 
@@ -187,6 +194,6 @@ async def delete_model(model_id: str):
     try:
         model_manager.delete_model(model_id)
     except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return {"status": "deleted"}

@@ -1,6 +1,9 @@
 # Project commands — run `just` or `just --list` to see all available recipes
+# All commands assume .venv/ exists (created by `just setup`).
 
 set dotenv-load
+
+VENV := ".venv/bin"
 
 # Default: show available commands
 default:
@@ -11,12 +14,12 @@ default:
 # Create venv and install all dependencies (Python + MLX + frontend)
 setup:
     python3 -m venv .venv
-    .venv/bin/pip install -e ".[dev,mlx]"
+    {{VENV}}/pip install -e ".[dev,mlx]"
     cd frontend && npm ci
 
 # Install Python dependencies only (with MLX for macOS)
 install:
-    .venv/bin/pip install -e ".[dev,mlx]"
+    {{VENV}}/pip install -e ".[dev,mlx]"
 
 # Install frontend dependencies only
 install-frontend:
@@ -26,7 +29,7 @@ install-frontend:
 
 # Start the backend server (pass args like: just dev --model mlx-community/Llama-3.2-1B-Instruct-4bit)
 dev *ARGS:
-    .venv/bin/python main.py {{ARGS}}
+    {{VENV}}/python main.py {{ARGS}}
 
 # Start the frontend dev server (Vite, port 5173, proxies to backend)
 dev-frontend:
@@ -47,27 +50,27 @@ build:
 
 # Run all tests with coverage
 test *ARGS:
-    .venv/bin/pytest {{ARGS}}
+    {{VENV}}/python -m pytest {{ARGS}}
 
 # Quick test run — no coverage, minimal output
 test-quick:
-    .venv/bin/pytest -q --no-cov
+    {{VENV}}/python -m pytest -q --no-cov
 
 # Run only security-related tests
 test-security:
-    .venv/bin/pytest -m security -v
+    {{VENV}}/python -m pytest -m security -v
 
 # Run only TokenStream tests
 test-token:
-    .venv/bin/pytest tests/test_token_stream.py -v
+    {{VENV}}/python -m pytest tests/test_token_stream.py -v
 
 # Run only ModelManager tests
 test-manager:
-    .venv/bin/pytest tests/test_model_manager.py -v
+    {{VENV}}/python -m pytest tests/test_model_manager.py -v
 
 # Rerun only previously failed tests
 test-failed:
-    .venv/bin/pytest --lf -v
+    {{VENV}}/python -m pytest --lf -v
 
 # ── Linting & Formatting ────────────────────────────────────────────────────
 
@@ -76,9 +79,9 @@ lint: lint-python lint-frontend
 
 # Lint Python code (ruff + black check + mypy)
 lint-python:
-    .venv/bin/ruff check app/ tests/
-    .venv/bin/black --check app/ tests/
-    .venv/bin/mypy app/
+    {{VENV}}/ruff check app/ tests/
+    {{VENV}}/black --check app/ tests/
+    {{VENV}}/mypy app/
 
 # Lint frontend (ESLint + TypeScript)
 lint-frontend:
@@ -86,8 +89,8 @@ lint-frontend:
 
 # Auto-format Python code
 fmt:
-    .venv/bin/ruff check --fix app/ tests/
-    .venv/bin/black app/ tests/
+    {{VENV}}/ruff check --fix app/ tests/
+    {{VENV}}/black app/ tests/
 
 # ── CI (mirrors GitHub Actions locally) ──────────────────────────────────────
 

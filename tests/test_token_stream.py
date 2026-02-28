@@ -1,7 +1,7 @@
 """Unit tests for TokenStream iterator and metrics tracking."""
 
 import time
-from typing import Generator
+from collections.abc import Generator
 
 import pytest
 
@@ -14,8 +14,7 @@ class TestTokenStreamIterator:
     def generator_fixture(self) -> Generator[str, None, None]:
         """Simple generator for testing."""
         tokens = ["Hello", " ", "world", "!"]
-        for token in tokens:
-            yield token
+        yield from tokens
 
     def test_iter_returns_self(self):
         """__iter__ should return self for iterator protocol."""
@@ -76,6 +75,7 @@ class TestTokenAccumulation:
 
     def test_collect_joins_all_tokens(self):
         """collect() should return concatenated tokens."""
+
         def simple_gen():
             yield "H"
             yield "i"
@@ -89,6 +89,7 @@ class TestTokenAccumulation:
 
     def test_collect_with_empty_stream(self):
         """collect() on empty stream should return empty string."""
+
         def empty_gen():
             return
             yield  # Unreachable, makes it a generator
@@ -102,6 +103,7 @@ class TestTokenAccumulation:
 
     def test_token_list_accumulates(self):
         """Internal token list should accumulate all tokens."""
+
         def counting_gen():
             for i in range(5):
                 yield f"token{i}"
@@ -118,6 +120,7 @@ class TestTimingMetrics:
 
     def test_elapsed_increases_over_time(self):
         """elapsed property should increase as time passes."""
+
         def slow_gen():
             yield "1"
             time.sleep(0.05)
@@ -137,6 +140,7 @@ class TestTimingMetrics:
 
     def test_elapsed_after_finish(self):
         """elapsed should be accurate after stream finishes."""
+
         def timed_gen():
             yield "a"
             time.sleep(0.05)
@@ -153,6 +157,7 @@ class TestTimingMetrics:
 
     def test_tokens_per_second_calculation(self):
         """tokens_per_second should calculate correctly."""
+
         def fast_gen():
             for i in range(4):
                 yield f"t{i}"
@@ -172,6 +177,7 @@ class TestTimingMetrics:
 
     def test_tokens_per_second_zero_elapsed(self):
         """tokens_per_second should return 0 if elapsed is 0 (edge case)."""
+
         def instant_gen():
             yield "instant"
 
@@ -186,6 +192,7 @@ class TestTimingMetrics:
 
     def test_elapsed_during_active_stream(self):
         """elapsed should work correctly while stream is still active."""
+
         def slow_gen():
             yield "1"
             time.sleep(0.05)
@@ -209,6 +216,7 @@ class TestEdgeCases:
 
     def test_empty_generator(self):
         """Should handle empty generator gracefully."""
+
         def empty():
             return
             yield
@@ -222,6 +230,7 @@ class TestEdgeCases:
 
     def test_single_token(self):
         """Should handle single-token stream."""
+
         def single():
             yield "only"
 
@@ -231,6 +240,7 @@ class TestEdgeCases:
 
     def test_large_tokens(self):
         """Should handle large token strings."""
+
         def large_gen():
             yield "x" * 10000
             yield "y" * 10000
@@ -243,6 +253,7 @@ class TestEdgeCases:
 
     def test_whitespace_tokens(self):
         """Should preserve whitespace in tokens."""
+
         def whitespace_gen():
             yield "   "
             yield "\n"
@@ -255,6 +266,7 @@ class TestEdgeCases:
 
     def test_unicode_tokens(self):
         """Should handle unicode tokens correctly."""
+
         def unicode_gen():
             yield "Hello"
             yield " 🚀 "
@@ -268,6 +280,7 @@ class TestEdgeCases:
 
     def test_finished_at_set_on_stopiteration(self):
         """_finished_at should be set when StopIteration is raised."""
+
         def tiny_gen():
             yield "x"
 
@@ -290,6 +303,7 @@ class TestCollectMethod:
 
     def test_collect_returns_string_type(self):
         """collect() should return str, not list."""
+
         def text_gen():
             yield "a"
             yield "b"
@@ -302,6 +316,7 @@ class TestCollectMethod:
 
     def test_collect_handles_special_chars(self):
         """collect() should preserve special characters."""
+
         def special_gen():
             yield "["
             yield "{map}"
@@ -314,13 +329,13 @@ class TestCollectMethod:
 
     def test_multiple_collect_calls(self):
         """Multiple collect() calls should return same result."""
+
         def limited_gen():
             yield "a"
             yield "b"
 
         stream = TokenStream(limited_gen())
         first = stream.collect()
-        second = "".join([])  # Simulate second collect on exhausted stream
 
         assert first == "ab"
 
@@ -330,6 +345,7 @@ class TestTimingAccuracy:
 
     def test_elapsed_property_uses_finish_time_when_done(self):
         """When finished, elapsed should use recorded finish time."""
+
         def quick_gen():
             yield "done"
 
@@ -348,6 +364,7 @@ class TestTimingAccuracy:
 
     def test_elapsed_uses_current_time_while_active(self):
         """While stream is active, elapsed should track current time."""
+
         def slow_gen():
             yield "token"
             # Stream left active

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import psutil
 
-from app.core.model_manager import FEASIBLE_BY_RAM, KNOWN_MODEL_SIZES, TOKEN_REQUIRED_MODELS
+from app.core.model_manager import FEASIBLE_BY_RAM, TOKEN_REQUIRED_MODELS
 from app.core.token_stream import TokenStream
 from app.schemas.openai import (
     ChatChoice,
@@ -19,8 +18,8 @@ from app.schemas.openai import (
     UsageInfo,
 )
 
-
 # ── Adapter Pattern ───────────────────────────────────────────────────────────
+
 
 class OpenAIAdapter:
     """
@@ -131,7 +130,7 @@ class OpenAIAdapter:
         fits within 80% of that RAM. Returns the full list so a UI can show which
         models are usable on this machine right now and which require a token.
         """
-        available_gb = psutil.virtual_memory().total / (1024 ** 3)
+        available_gb = psutil.virtual_memory().total / (1024**3)
         safe_limit = available_gb * 0.8
 
         models = [

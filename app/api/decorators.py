@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Callable
 
 from fastapi import HTTPException
 
@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 # ── Decorator Pattern ─────────────────────────────────────────────────────────
+
 
 def require_model(func: Callable) -> Callable:
     """
@@ -26,10 +27,12 @@ def require_model(func: Callable) -> Callable:
         @require_model
         async def chat(...): ...
     """
+
     @wraps(func)
     async def wrapper(*args, **kwargs):
         # Import here to avoid circular imports at module load time
         from app.core.model_manager import model_manager
+
         if not model_manager.is_loaded:
             raise HTTPException(
                 status_code=503,
@@ -58,6 +61,7 @@ def timed(func: Callable) -> Callable:
         @timed
         async def chat(...): ...
     """
+
     @wraps(func)
     async def wrapper(*args, **kwargs):
         t0 = time.perf_counter()

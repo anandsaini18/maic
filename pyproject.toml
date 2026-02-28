@@ -57,7 +57,7 @@ markers = [
     "security: Security-related tests",
     "slow: Tests that take significant time to run",
 ]
-minversion = "3.10"
+minversion = "7.4"
 testpaths = ["tests"]
 norecursedirs = [".git", ".venv", "__pycache__", "*.egg-info", ".pytest_cache"]
 timeout = 30

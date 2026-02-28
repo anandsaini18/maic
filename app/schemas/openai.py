@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
 # ── Request ───────────────────────────────────────────────────────────────────
+
 
 class Message(BaseModel):
     role: Literal["system", "user", "assistant"]
@@ -17,19 +17,20 @@ class Message(BaseModel):
 class ChatCompletionRequest(BaseModel):
     model: str
     messages: list[Message]
-    max_tokens: Optional[int] = None
-    temperature: Optional[float] = None
-    top_p: Optional[float] = None
+    max_tokens: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
     stream: bool = False
 
 
 # ── Non-streaming Response ────────────────────────────────────────────────────
 
+
 class UsageInfo(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
-    tokens_per_second: Optional[float] = None
+    tokens_per_second: float | None = None
 
 
 class ChatChoice(BaseModel):
@@ -49,15 +50,16 @@ class ChatCompletionResponse(BaseModel):
 
 # ── Streaming Response (SSE chunks) ──────────────────────────────────────────
 
+
 class DeltaMessage(BaseModel):
-    role: Optional[Literal["assistant"]] = None
-    content: Optional[str] = None
+    role: Literal["assistant"] | None = None
+    content: str | None = None
 
 
 class ChunkChoice(BaseModel):
     index: int = 0
     delta: DeltaMessage
-    finish_reason: Optional[Literal["stop", "length"]] = None
+    finish_reason: Literal["stop", "length"] | None = None
 
 
 class ChatCompletionChunk(BaseModel):
@@ -66,10 +68,11 @@ class ChatCompletionChunk(BaseModel):
     created: int = Field(default_factory=lambda: int(time.time()))
     model: str
     choices: list[ChunkChoice]
-    usage: Optional[UsageInfo] = None
+    usage: UsageInfo | None = None
 
 
 # ── Models list ───────────────────────────────────────────────────────────────
+
 
 class ModelCard(BaseModel):
     id: str
@@ -83,6 +86,7 @@ class ModelList(BaseModel):
 
 
 # ── Supported models list (custom endpoint) ───────────────────────────────────
+
 
 class SupportedModel(BaseModel):
     id: str
@@ -99,10 +103,11 @@ class SupportedModelList(BaseModel):
 
 # ── Error ─────────────────────────────────────────────────────────────────────
 
+
 class ErrorDetail(BaseModel):
     message: str
     type: str = "server_error"
-    code: Optional[str] = None
+    code: str | None = None
 
 
 class ErrorResponse(BaseModel):
