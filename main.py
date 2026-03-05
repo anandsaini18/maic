@@ -4,6 +4,7 @@ import argparse
 import logging
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
@@ -69,6 +70,44 @@ def make_lifespan(model_id: str):
 
 # ── App factory ───────────────────────────────────────────────────────────────
 
+def configure_frontend(app: FastAPI, static_dir: Path) -> None:
+    """Mount built frontend assets and root route, with clear failure mode."""
+    from fastapi.responses import FileResponse, HTMLResponse
+    from fastapi.staticfiles import StaticFiles
+
+    static_dir = Path(static_dir)
+    if not static_dir.exists():
+        return
+
+    index_file = static_dir / "index.html"
+    assets_dir = static_dir / "assets"
+
+    if index_file.exists() and assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+        @app.get("/")
+        async def serve_ui():
+            return FileResponse(str(index_file))
+
+        return
+
+    logger.warning(
+        "Frontend build artifacts are missing (expected %s and %s). Run `just build`.",
+        index_file,
+        assets_dir,
+    )
+
+    @app.get("/")
+    async def serve_ui_unavailable():
+        return HTMLResponse(
+            (
+                "<h1>Frontend build missing</h1>"
+                "<p>Run <code>just build</code> and restart the server.</p>"
+            ),
+            status_code=503,
+        )
+
+
 def create_app(model_id: str) -> FastAPI:
     app = FastAPI(
         title="Local LLM Server",
@@ -80,22 +119,7 @@ def create_app(model_id: str) -> FastAPI:
         lifespan=make_lifespan(model_id),
     )
     app.include_router(router)
-
-    # Serve the Vite-built frontend at the root
-    from pathlib import Path
-
-    from fastapi.responses import FileResponse
-    from fastapi.staticfiles import StaticFiles
-
-    static_dir = Path(__file__).parent / "static"
-    if static_dir.exists():
-        assets_dir = static_dir / "assets"
-        if assets_dir.exists():
-            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
-
-        @app.get("/")
-        async def serve_ui():
-            return FileResponse(str(static_dir / "index.html"))
+    configure_frontend(app, Path(__file__).parent / "static")
 
     return app
 

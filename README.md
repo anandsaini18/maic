@@ -147,6 +147,13 @@ Open your browser: **http://localhost:8000**
 
 You now have a fully local LLM running on your Mac.
 
+If `/` shows **Frontend build missing**, generate static assets and restart:
+
+```bash
+just build
+just dev
+```
+
 ### Available Commands
 
 Run `just` to see all commands:
