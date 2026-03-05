@@ -94,7 +94,11 @@ async def chat_completions(
         return StreamingResponse(
             OpenAIAdapter.stream_to_sse(stream, req.model, chunk_id),  # Adapter
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     return OpenAIAdapter.stream_to_response(  # Adapter

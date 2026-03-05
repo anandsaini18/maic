@@ -162,6 +162,7 @@ Run `just` to see all commands:
 |---------|-------------|
 | `just setup` | Create venv + install everything |
 | `just dev` | Start the backend server |
+| `just dev-built` | Build frontend, then start backend server |
 | `just dev --model mlx-community/Llama-3.2-1B-Instruct-4bit` | Start with a specific model |
 | `just dev-frontend` | Start Vite dev server (port 5173) |
 | `just build` | Build frontend for production |

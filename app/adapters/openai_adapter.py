@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import Literal
 
@@ -99,6 +100,7 @@ class OpenAIAdapter:
             choices=[ChunkChoice(delta=DeltaMessage(role="assistant"))],
         )
         yield f"data: {first_chunk.model_dump_json()}\n\n"
+        await asyncio.sleep(0)
 
         for token in stream:
             chunk = ChatCompletionChunk(
@@ -107,6 +109,7 @@ class OpenAIAdapter:
                 choices=[ChunkChoice(delta=DeltaMessage(content=token))],
             )
             yield f"data: {chunk.model_dump_json()}\n\n"
+            await asyncio.sleep(0)
 
         # Final chunk — signal stop + usage stats
         stop_chunk = ChatCompletionChunk(
@@ -120,6 +123,7 @@ class OpenAIAdapter:
             ),
         )
         yield f"data: {stop_chunk.model_dump_json()}\n\n"
+        await asyncio.sleep(0)
         yield "data: [DONE]\n\n"
 
     @staticmethod

@@ -46,6 +46,11 @@ dev-all:
 build:
     cd frontend && npm run build
 
+# Build latest frontend assets, then start backend server
+dev-built *ARGS:
+    just build
+    {{VENV}}/python main.py {{ARGS}}
+
 # ── Testing ──────────────────────────────────────────────────────────────────
 
 # Run all tests with coverage

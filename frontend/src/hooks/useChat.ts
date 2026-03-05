@@ -147,42 +147,73 @@ async function consumeSSE(
   let buffer = "";
   let fullText = "";
   let tokPerSec: number | null = null;
+  let doneStreaming = false;
+
+  const processPayload = (payload: string) => {
+    if (payload === "[DONE]") {
+      doneStreaming = true;
+      return;
+    }
+
+    try {
+      const chunk = JSON.parse(payload);
+      const delta = chunk.choices?.[0]?.delta;
+      if (delta?.content) {
+        fullText += delta.content;
+        const snap = fullText;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, content: snap } : m,
+          ),
+        );
+      }
+      if (chunk.usage?.tokens_per_second != null) {
+        tokPerSec = chunk.usage.tokens_per_second;
+      }
+    } catch {
+      /* ignore malformed payload chunk */
+    }
+  };
+
+  const extractEvents = () => {
+    buffer = buffer.replace(/\r\n/g, "\n");
+    const events: string[] = [];
+
+    while (true) {
+      const end = buffer.indexOf("\n\n");
+      if (end === -1) break;
+      events.push(buffer.slice(0, end));
+      buffer = buffer.slice(end + 2);
+    }
+
+    for (const event of events) {
+      const dataLines = event
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart());
+
+      if (dataLines.length === 0) continue;
+      processPayload(dataLines.join("\n"));
+      if (doneStreaming) break;
+    }
+  };
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+    extractEvents();
+    if (doneStreaming) break;
+  }
 
-    let sseFinished = false;
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith("data: ")) continue;
-      const payload = trimmed.slice(6);
-      if (payload === "[DONE]") { sseFinished = true; break; }
+  // Flush decoder + any trailing event without terminal delimiter.
+  buffer += decoder.decode();
+  extractEvents();
 
-      try {
-        const chunk = JSON.parse(payload);
-        const delta = chunk.choices?.[0]?.delta;
-        if (delta?.content) {
-          fullText += delta.content;
-          const snap = fullText;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, content: snap } : m,
-            ),
-          );
-        }
-        if (chunk.usage?.tokens_per_second != null) {
-          tokPerSec = chunk.usage.tokens_per_second;
-        }
-      } catch {
-        /* skip malformed chunk */
-      }
-    }
-    if (sseFinished) break;
+  if (buffer.trim().startsWith("data:")) {
+    const payload = buffer.trim().slice(5).trimStart();
+    processPayload(payload);
   }
 
   return { text: fullText, tokPerSec };
