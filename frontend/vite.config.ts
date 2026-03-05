@@ -6,11 +6,21 @@ export default defineConfig({
   build: {
     outDir: "../static",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+          highlight: ["highlight.js"],
+          marked: ["marked"],
+        },
+      },
+    },
   },
   server: {
+    host: "localhost",
     port: 5173,
     proxy: {
-      "/v1": "http://localhost:8000",
+      "/v1": "http://localhost:8001",
     },
   },
 });
