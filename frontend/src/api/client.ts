@@ -59,7 +59,11 @@ export async function chatCompletion(body: {
 }): Promise<Response> {
   const res = await fetch(`${API}/v1/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Accept: body.stream ? "text/event-stream" : "application/json",
+      "Cache-Control": "no-cache",
+    },
     body: JSON.stringify(body),
   });
   if (!res.ok) {

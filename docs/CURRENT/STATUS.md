@@ -21,3 +21,10 @@ Last updated: 2026-03-05
 ## Recently Shipped
 
 - Initial repo documentation migration to Notdefined framework structure.
+- Streaming reliability hardening:
+  - backend now limits pathological stop-marker lookback to avoid end-only buffering
+  - backend now falls back to token-level decode when MLX emits empty text segments
+  - frontend SSE consumer now parses full SSE events (`\n\n` framed) for robust incremental rendering
+  - SSE transport now uses explicit no-transform/keep-alive headers and async flush points per chunk
+  - frontend requests now send `Accept: text/event-stream` for streaming calls
+- Added `just dev-built` to build frontend and start backend in one command

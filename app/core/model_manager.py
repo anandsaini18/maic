@@ -97,6 +97,11 @@ TOKEN_REQUIRED_MODELS: frozenset[str] = frozenset(
 # Sorted by size for easy lookup by RAM tier
 FEASIBLE_BY_RAM: list[tuple[str, float]] = sorted(KNOWN_MODEL_SIZES.items(), key=lambda x: x[1])
 
+# Guard against pathological stop strings that can delay visible streaming.
+# Real EOS markers are short (< 20 chars), so 64 keeps correctness while
+# preventing whole-response buffering if a tokenizer emits a bad marker.
+MAX_STOP_LOOKBACK_CHARS = 64
+
 
 # ── Custom Exceptions ─────────────────────────────────────────────────────────
 
@@ -378,8 +383,13 @@ class ModelManager:
         # Stop-aware wrapper with three detection layers (see _observed below)
         # ─────────────────────────────────────────────────────────────────────
         stop_strings = self._stop_strings
-        # Rolling buffer to catch stop strings spanning chunk boundaries
-        max_suffix = max((len(s) for s in stop_strings), default=0)
+        # Rolling buffer to catch stop strings spanning chunk boundaries.
+        # We keep only the minimal suffix that could still become a stop marker.
+        # This preserves realtime streaming even for short responses.
+        max_suffix = min(
+            max((len(s) for s in stop_strings), default=0),
+            MAX_STOP_LOOKBACK_CHARS,
+        )
 
         def _observed() -> Generator[str, None, None]:
             """
@@ -407,9 +417,53 @@ class ModelManager:
             that might be the start of a stop string that hasn't fully arrived yet.
             """
             suffix = ""  # Accumulates text to detect stop strings
+            ended_by_finish_reason = False
+            use_token_decode_fallback = False
+
+            def _suffix_holdback_chars(text: str) -> int:
+                if not stop_strings or not text:
+                    return 0
+
+                # Keep only the longest trailing substring that matches a prefix
+                # of any stop marker; emit everything else immediately.
+                holdback = 0
+                for stop in stop_strings:
+                    prefix_cap = min(len(stop) - 1, max_suffix, len(text))
+                    for n in range(prefix_cap, 0, -1):
+                        if text.endswith(stop[:n]):
+                            if n > holdback:
+                                holdback = n
+                            break
+                return holdback
+
+            def _decode_token_piece(token_value: Any) -> str:
+                try:
+                    token_id = (
+                        int(token_value.item())
+                        if hasattr(token_value, "item")
+                        else int(token_value)
+                    )
+                    return self._tokenizer.decode([token_id]) or ""
+                except Exception:
+                    return ""
+
             try:
                 for token_response in raw_gen:
-                    suffix += token_response.text
+                    segment = token_response.text or ""
+
+                    if token_response.finish_reason is None:
+                        if use_token_decode_fallback:
+                            segment = _decode_token_piece(token_response.token)
+                        elif not segment:
+                            decoded = _decode_token_piece(token_response.token)
+                            if decoded:
+                                use_token_decode_fallback = True
+                                segment = decoded
+                    elif use_token_decode_fallback:
+                        # Final detokenizer flush may duplicate token-decoded output.
+                        segment = ""
+
+                    suffix += segment
 
                     # Layer 1: MLX detected native EOS token
                     if token_response.finish_reason == "stop":
@@ -420,12 +474,15 @@ class ModelManager:
                         if clean:
                             self._notify_token(clean)
                             yield clean
+                        ended_by_finish_reason = True
                         break
 
                     # Layer 2: Hit max_tokens limit
                     if token_response.finish_reason == "length":
-                        self._notify_token(suffix)
-                        yield suffix
+                        if suffix:
+                            self._notify_token(suffix)
+                            yield suffix
+                        ended_by_finish_reason = True
                         break
 
                     # Layer 3: Stop string found in accumulated text
@@ -435,14 +492,23 @@ class ModelManager:
                         if clean:
                             self._notify_token(clean)
                             yield clean
+                        ended_by_finish_reason = True
                         break
 
-                    # Normal flow: yield safe text, retain potential stop string prefix
-                    safe = suffix[:-max_suffix] if max_suffix else suffix
+                    # Normal flow: emit everything except the tiny suffix that
+                    # could still be the start of a future stop string.
+                    holdback = _suffix_holdback_chars(suffix)
+                    safe = suffix[:-holdback] if holdback else suffix
                     if safe:
                         self._notify_token(safe)
                         yield safe
                     suffix = suffix[len(safe) :]
+
+                # Defensive flush: if upstream ends without finish_reason,
+                # don't lose buffered text held for stop-string lookback.
+                if suffix and not ended_by_finish_reason:
+                    self._notify_token(suffix)
+                    yield suffix
 
             except Exception as exc:
                 self._notify_error(exc)

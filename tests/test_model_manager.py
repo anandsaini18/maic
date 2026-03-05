@@ -646,10 +646,11 @@ class TestStopStringTrimming:
     """Verify that Layer 1 and Layer 3 trim at the rightmost stop string,
     preserving any stop-string-like text that appeared earlier in content."""
 
-    def _make_resp(self, text, finish_reason=None):
+    def _make_resp(self, text, finish_reason=None, token=1):
         r = Mock()
         r.text = text
         r.finish_reason = finish_reason
+        r.token = token
         return r
 
     def _collect(self, mm, responses):
@@ -667,6 +668,22 @@ class TestStopStringTrimming:
                 mock_settings.top_p = 0.9
                 stream = mm.generate([], strategy)
                 return "".join(stream)
+
+    def _collect_chunks(self, mm, responses):
+        """Wire up generate() and return raw yielded chunks (for stream cadence assertions)."""
+        mock_mx = MagicMock()
+        mock_mlx = MagicMock()
+        mock_mlx.stream_generate.return_value = iter(responses)
+        strategy = Mock(return_value={})
+        with patch.dict(
+            "sys.modules", {"mlx": MagicMock(), "mlx.core": mock_mx, "mlx_lm": mock_mlx}
+        ):
+            with patch("app.core.model_manager.settings") as mock_settings:
+                mock_settings.max_tokens = 512
+                mock_settings.temperature = 0.7
+                mock_settings.top_p = 0.9
+                stream = mm.generate([], strategy)
+                return list(stream)
 
     def _make_mm(self, stop_strings):
         mm = ModelManager()
@@ -725,3 +742,45 @@ class TestStopStringTrimming:
         mm = self._make_mm({"<|im_end|>"})
         result = self._collect(mm, [self._make_resp("Hi<|im_end|>")])
         assert result == "Hi"
+
+    def test_short_response_streams_incrementally_with_standard_stop_marker(self):
+        """Short replies should still stream before final stop chunk."""
+        mm = self._make_mm({"<|im_end|>"})
+        responses = [
+            self._make_resp("H"),
+            self._make_resp("i"),
+            self._make_resp("!"),
+            self._make_resp("", "stop"),
+        ]
+
+        chunks = self._collect_chunks(mm, responses)
+
+        assert "".join(chunks) == "Hi!"
+        assert len(chunks) > 1
+
+    def test_fallback_to_token_decode_when_text_segments_are_empty(self):
+        """If MLX yields empty text segments, we should still stream via token decode."""
+        mm = self._make_mm({"<|im_end|>"})
+        mm._tokenizer.decode.side_effect = lambda ids: {101: "H", 102: "i", 999: ""}[ids[0]]
+
+        responses = [
+            self._make_resp("", None, token=101),
+            self._make_resp("", None, token=102),
+            self._make_resp("Hi", "stop", token=999),
+        ]
+
+        chunks = self._collect_chunks(mm, responses)
+
+        assert "".join(chunks) == "Hi"
+        assert len(chunks) >= 2
+
+    def test_pathological_long_stop_marker_does_not_fully_buffer_stream(self):
+        """Very long stop markers must not force a single end-of-stream chunk."""
+        mm = self._make_mm({"X" * 500})
+        responses = [self._make_resp("a") for _ in range(120)]
+        responses.append(self._make_resp("z", "stop"))
+
+        chunks = self._collect_chunks(mm, responses)
+
+        assert "".join(chunks) == ("a" * 120 + "z")
+        assert len(chunks) > 1
