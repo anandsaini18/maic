@@ -56,7 +56,7 @@ It turns your MacBook into a **self-hosted AI server**.
 
 Maic is built specifically for:
 
-- MacBook Pro M1 / M2 / M3  
+- MacBook Pro M1 / M2 / M3 / M4
 - MacBook Air M-series  
 - ARM64 macOS systems  
 
