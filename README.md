@@ -1,7 +1,7 @@
 # Maic 🪄  
 ## Run LLM Models Locally on MacBook (No Subscription • No API Key • Fully Offline)
 
-**Maic** is a high-performance local LLM server optimized for **Apple Silicon (M1, M2, M3)**.
+**Maic** is a high-performance local LLM server optimized for **Apple Silicon (M1, M2, M3, M4)**.
 
 It lets you run large language models directly on your MacBook without:
 
@@ -56,9 +56,9 @@ It turns your MacBook into a **self-hosted AI server**.
 
 Maic is built specifically for:
 
-- MacBook Pro M1 / M2 / M3  
-- MacBook Air M-series  
-- ARM64 macOS systems  
+- MacBook Pro M1 / M2 / M3 / M4
+- MacBook Air M-series
+- ARM64 macOS systems
 
 Benefits:
 
@@ -273,7 +273,7 @@ Tests are organized by layer:
 ## 📈 Search Queries This Project Helps With
 
 - how to run llm models on macbook locally without any subscription or api key
-- run llm locally mac m1
+- run llm locally mac m1 m2 m3 m4
 - apple silicon local llm
 - openai alternative mac offline
 - local openai server mac

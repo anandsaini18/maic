@@ -54,9 +54,9 @@ export default {
       },
       fontFamily: {
         display: ["'DM Mono'", "'SF Mono'", "monospace"],
-        body: ["'Josefin Sans'", "-apple-system", "sans-serif"],
-        hero: ["'Syne'", "'Josefin Sans'", "sans-serif"],
-        prose: ["'Crimson Pro'", "'Georgia'", "serif"],
+        body: ["'Ubuntu'", "-apple-system", "sans-serif"],
+        hero: ["'Syne'", "'Ubuntu'", "sans-serif"],
+        prose: ["'Ubuntu'", "-apple-system", "sans-serif"],
         code: ["'Fira Code'", "'DM Mono'", "monospace"],
       },
       borderRadius: {
