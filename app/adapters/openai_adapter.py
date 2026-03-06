@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 from collections.abc import AsyncGenerator
 from typing import Literal
 
@@ -21,6 +23,47 @@ from app.schemas.openai import (
 )
 
 # ── Adapter Pattern ───────────────────────────────────────────────────────────
+
+
+async def _async_token_iter(stream: TokenStream) -> AsyncGenerator[str, None]:
+    """
+    Offload the synchronous MLX token iterator to a thread pool so it does not
+    block the asyncio event loop during inference.
+
+    How it works:
+    - A producer function runs `for token in stream` inside a ThreadPoolExecutor
+      thread (where blocking CPU/GPU work is acceptable).
+    - Each produced token is pushed into an asyncio.Queue via call_soon_threadsafe,
+      keeping all queue interactions on the event loop thread.
+    - The async generator awaits tokens from the queue, yielding control to the
+      event loop between tokens so other requests can be served concurrently.
+    - A None sentinel signals end-of-stream.
+
+    The queue has a bounded size (32) to provide light back-pressure: if the
+    consumer (SSE writer) falls behind the producer, the producer pauses rather
+    than buffering the entire response in memory.
+    """
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=32)
+
+    def _produce() -> None:
+        try:
+            for token in stream:
+                loop.call_soon_threadsafe(queue.put_nowait, token)
+        except Exception as exc:
+            # Surface the exception as a sentinel so the async side can re-raise
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+            raise exc
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    loop.run_in_executor(None, _produce)
+
+    while True:
+        token = await queue.get()
+        if token is None:
+            break
+        yield token
 
 
 class OpenAIAdapter:
@@ -52,6 +95,10 @@ class OpenAIAdapter:
         """
         Collect the entire TokenStream into a single ChatCompletionResponse JSON object.
         Used when the client sends stream=false. Blocks until generation is complete.
+
+        The route handler is responsible for running this in a thread pool
+        (via asyncio.to_thread) so the synchronous MLX iteration does not block
+        the asyncio event loop.
         """
         text = stream.collect()
         token_count = stream.token_count
@@ -92,29 +139,46 @@ class OpenAIAdapter:
         2. Content chunks — one per token, carrying the actual text.
         3. Final chunk — carries finish_reason='stop' and no content, then
            the special sentinel 'data: [DONE]' to tell the client we're finished.
+
+        Performance: The first and last chunks use Pydantic serialization (two
+        allocations per request). Content chunks are built with a pre-computed
+        string template to avoid creating Pydantic objects on every token.
         """
-        # First chunk — send role
+        created = int(time.time())
+
+        # First chunk — send role (Pydantic used here; only happens once per request)
         first_chunk = ChatCompletionChunk(
             id=chunk_id,
             model=model_id,
+            created=created,
             choices=[ChunkChoice(delta=DeltaMessage(role="assistant"))],
         )
         yield f"data: {first_chunk.model_dump_json()}\n\n"
-        await asyncio.sleep(0)
 
-        for token in stream:
-            chunk = ChatCompletionChunk(
-                id=chunk_id,
-                model=model_id,
-                choices=[ChunkChoice(delta=DeltaMessage(content=token))],
-            )
-            yield f"data: {chunk.model_dump_json()}\n\n"
-            await asyncio.sleep(0)
+        # Pre-compute the static parts of the content chunk JSON frame.
+        # Each content token only varies in the "content" field, so we build
+        # everything else once and splice the token in with json.dumps() for
+        # correct JSON escaping (handles quotes, backslashes, unicode, etc.).
+        # This avoids constructing a full Pydantic object + calling model_dump_json()
+        # on every single token — the hot path in a long streaming response.
+        chunk_prefix = (
+            f'{{"id":"{chunk_id}","object":"chat.completion.chunk",'
+            f'"created":{created},"model":{json.dumps(model_id)},'
+            f'"choices":[{{"index":0,"delta":{{"content":'
+        )
+        chunk_suffix = '},"finish_reason":null}]}'
 
-        # Final chunk — signal stop + usage stats
+        # Iterate tokens from a thread so MLX inference doesn't block the event loop.
+        # No asyncio.sleep(0) needed — each 'await queue.get()' inside
+        # _async_token_iter already yields control back to the event loop.
+        async for token in _async_token_iter(stream):
+            yield f"data: {chunk_prefix}{json.dumps(token)}{chunk_suffix}\n\n"
+
+        # Final chunk — signal stop + usage stats (Pydantic; once per request)
         stop_chunk = ChatCompletionChunk(
             id=chunk_id,
             model=model_id,
+            created=created,
             choices=[ChunkChoice(delta=DeltaMessage(), finish_reason="stop")],
             usage=UsageInfo(
                 completion_tokens=stream.token_count,
@@ -123,7 +187,6 @@ class OpenAIAdapter:
             ),
         )
         yield f"data: {stop_chunk.model_dump_json()}\n\n"
-        await asyncio.sleep(0)
         yield "data: [DONE]\n\n"
 
     @staticmethod

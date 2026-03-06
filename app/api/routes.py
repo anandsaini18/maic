@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 import uuid
 from typing import Any
@@ -14,6 +15,7 @@ from app.core.config import default_strategy, settings
 from app.core.model_manager import (
     KNOWN_MODEL_SIZES,
     TOKEN_REQUIRED_MODELS,
+    TOTAL_RAM_GB,
     ModelLoadError,
     ModelTooLargeError,
     model_manager,
@@ -30,6 +32,9 @@ router = APIRouter()
 
 # Track background download state so the UI can poll progress
 _download_state: dict[str, str] = {}  # model_id → "downloading" | "done" | "error: ..."
+
+# Semaphore: only one inference at a time (MLX model is not safe for concurrent use)
+_inference_semaphore = asyncio.Semaphore(1)
 
 
 # ── /v1/models ────────────────────────────────────────────────────────────────
@@ -69,12 +74,27 @@ async def chat_completions(
     - stream=false  → returns full ChatCompletionResponse JSON
     - stream=true   → returns SSE stream (text/event-stream)
 
+    Concurrency: only one inference runs at a time (MLX model singleton).
+    A second concurrent request receives HTTP 503 "model_busy" immediately.
+
     Patterns in play:
       Strategy  — default_strategy (swappable generation config)
       Facade    — model_manager.generate() hides all MLX internals
       Iterator  — TokenStream consumed by OpenAIAdapter
       Adapter   — OpenAIAdapter converts TokenStream ↔ OpenAI wire format
     """
+    # Reject concurrent inference immediately rather than queuing unboundedly.
+    # A client that wants to retry can simply re-send after a short delay.
+    if not _inference_semaphore._value:  # non-blocking peek
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "message": "Another inference is already in progress. Retry shortly.",
+                    "type": "model_busy",
+                }
+            },
+        )
 
     # Override per-request generation params if provided
     def per_request_strategy(
@@ -87,25 +107,30 @@ async def chat_completions(
         )
 
     messages = OpenAIAdapter.messages_to_dicts(req.messages)
-    stream = model_manager.generate(messages, per_request_strategy)  # Facade
 
-    if req.stream:
-        chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
-        return StreamingResponse(
-            OpenAIAdapter.stream_to_sse(stream, req.model, chunk_id),  # Adapter
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache, no-transform",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
+    async with _inference_semaphore:
+        stream = model_manager.generate(messages, per_request_strategy)  # Facade
+
+        if req.stream:
+            chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
+            return StreamingResponse(
+                OpenAIAdapter.stream_to_sse(stream, req.model, chunk_id),  # Adapter
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache, no-transform",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+
+        # Run blocking stream.collect() in a thread so MLX iteration doesn't
+        # freeze the event loop during non-streaming responses.
+        return await asyncio.to_thread(
+            OpenAIAdapter.stream_to_response,
+            stream,
+            req.model,
+            req.max_tokens,
         )
-
-    return OpenAIAdapter.stream_to_response(  # Adapter
-        stream,
-        model_id=req.model,
-        request_max_tokens=req.max_tokens,
-    )
 
 
 # ── Model management endpoints (for the UI) ─────────────────────────────────
@@ -121,11 +146,11 @@ async def models_status() -> dict[str, Any]:
     Return full status for every known model: size, feasibility, download state,
     whether it's the currently active model, and if a HuggingFace token is needed.
     The UI polls this to render the model selector.
-    """
-    import psutil
 
-    available_gb = psutil.virtual_memory().total / (1024**3)
-    safe_limit = available_gb * 0.8
+    Uses the module-level TOTAL_RAM_GB constant (computed once at startup)
+    instead of calling psutil.virtual_memory() on every poll.
+    """
+    safe_limit = TOTAL_RAM_GB * 0.8
 
     models = []
     for mid, size in sorted(KNOWN_MODEL_SIZES.items(), key=lambda x: x[1]):
@@ -150,7 +175,7 @@ async def models_status() -> dict[str, Any]:
         )
 
     return {
-        "available_ram_gb": round(available_gb, 1),
+        "available_ram_gb": round(TOTAL_RAM_GB, 1),
         "active_model": model_manager.model_id,
         "models": models,
     }
@@ -180,13 +205,18 @@ async def download_model(req: ModelActionRequest) -> dict[str, str]:
 
 @router.post("/v1/models/load")
 async def load_model(req: ModelActionRequest) -> dict[str, str]:
-    """Switch the active model. Downloads first if not already on disk."""
+    """
+    Switch the active model. Downloads first if not already on disk.
+
+    Runs model loading in a thread pool so the blocking MLX weight-loading
+    (disk I/O + memory mapping) does not freeze the asyncio event loop.
+    """
     mid = req.model_id
     if model_manager.model_id == mid:
         return {"status": "already_active"}
 
     try:
-        model_manager.load(mid)
+        await asyncio.to_thread(model_manager.load, mid)
     except ModelTooLargeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ModelLoadError as exc:

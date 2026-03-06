@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -12,6 +13,12 @@ from app.core.config import GenerationStrategy, settings
 from app.core.token_stream import TokenStream
 
 logger = logging.getLogger(__name__)
+
+# ── Cached total RAM (constant for the lifetime of the process) ───────────────
+# Used by hot paths (models_status polling, adapter feasibility checks) to avoid
+# repeated psutil.virtual_memory() calls. _check_ram() uses psutil directly so
+# tests can still control the value via mocking.
+TOTAL_RAM_GB: float = psutil.virtual_memory().total / (1024**3)
 
 
 def _model_local_path(model_id: str) -> Path:
@@ -102,6 +109,9 @@ FEASIBLE_BY_RAM: list[tuple[str, float]] = sorted(KNOWN_MODEL_SIZES.items(), key
 # preventing whole-response buffering if a tokenizer emits a bad marker.
 MAX_STOP_LOOKBACK_CHARS = 64
 
+_DOWNLOAD_CACHE_TTL = 30.0   # seconds
+_DISK_SIZE_CACHE_TTL = 60.0  # seconds
+
 
 # ── Custom Exceptions ─────────────────────────────────────────────────────────
 
@@ -180,6 +190,14 @@ class ModelManager:
         self._observers: list[InferenceObserver] = [StatsObserver()]
         # Populated after load() — text forms of all EOS tokens for stop-string detection
         self._stop_strings: frozenset[str] = frozenset()
+        # Cached module references set after load() — avoids re-importing on every generate()
+        self._mx: Any = None
+        self._mlx_lm: Any = None
+        # Per-instance TTL caches for is_downloaded / disk_size_gb.
+        # Instance-level (not module-level) so tests that create fresh ModelManager()
+        # instances start with an empty cache and don't bleed state across test runs.
+        self._download_cache: dict[str, tuple[bool, float]] = {}
+        self._disk_size_cache: dict[str, tuple[float | None, float]] = {}
 
     # ── Observer management ──────────────────────────────────────────────────
 
@@ -210,6 +228,11 @@ class ModelManager:
 
         Looks up model size in KNOWN_MODEL_SIZES and suggests feasible alternatives.
         Unknown models skip this check and let MLX fail later if needed.
+
+        Reads psutil directly (not the cached constant) so that tests can patch
+        psutil.virtual_memory to simulate different RAM configurations. This is
+        acceptable because _check_ram is called only at model-load time, not on
+        every request, so the psutil call cost is negligible.
         """
         required_gb = KNOWN_MODEL_SIZES.get(model_id)
         if required_gb is None:
@@ -310,6 +333,9 @@ class ModelManager:
             self._model, self._tokenizer = result[0], result[1]
             self._model_id = model_id
             self._stop_strings = self._derive_stop_strings()
+            # Cache mlx_lm reference so generate() avoids re-importing on every call.
+            # mlx.core is cached lazily on the first generate() call (it's only needed there).
+            self._mlx_lm = mlx_lm
             logger.info(
                 "Model '%s' loaded. Stop strings: %s",
                 model_id,
@@ -321,6 +347,10 @@ class ModelManager:
                 f"Failed to load model '{model_id}'. "
                 f"The local files may be corrupted — try re-downloading the model."
             ) from exc
+
+        # Invalidate download/disk-size cache for this model after a successful load
+        self._download_cache.pop(model_id, None)
+        self._disk_size_cache.pop(model_id, None)
 
     @property
     def is_loaded(self) -> bool:
@@ -354,8 +384,17 @@ class ModelManager:
         The 'strategy' argument controls sampling (temperature, top_p, max_tokens).
         Pass default_strategy for normal use, greedy_strategy for deterministic output.
         """
-        import mlx.core as mx
-        import mlx_lm  # Lazy import
+        # Use cached module references set during load() — avoids sys.modules lookup per call.
+        # If _mlx_lm is None (e.g., in tests that set up mm internals without calling load()),
+        # fall back to a lazy import so sys.modules patches in tests still work correctly.
+        if self._mx is None:
+            import mlx.core as mx
+            self._mx = mx
+        mx = self._mx
+        if self._mlx_lm is None:
+            import mlx_lm  # type: ignore[import]
+            self._mlx_lm = mlx_lm
+        mlx_lm = self._mlx_lm
 
         # Apply chat template and tokenize messages in one step
         # Ensures special tokens are properly encoded for EOS detection
@@ -514,35 +553,37 @@ class ModelManager:
                 self._notify_error(exc)
                 raise
 
-        stream = TokenStream(_observed())
+        # Pass on_complete callback directly into TokenStream so it fires reliably
+        # on StopIteration regardless of how the stream is consumed (for loop,
+        # collect(), next()). This replaces the previous instance-attribute
+        # monkey-patch which was silently ignored by Python's iterator protocol.
+        def _on_complete() -> None:
+            self._notify_complete(
+                {
+                    "token_count": stream.token_count,
+                    "elapsed": stream.elapsed,
+                    "tokens_per_second": stream.tokens_per_second,
+                }
+            )
 
-        # Intercept the final __next__ to fire on_complete with stats
-        # (Can't do this in _observed since it lacks access to TokenStream stats)
-        original_next = stream.__next__
-
-        def _completing_next() -> str:
-            try:
-                return original_next()
-            except StopIteration:
-                self._notify_complete(
-                    {
-                        "token_count": stream.token_count,
-                        "elapsed": stream.elapsed,
-                        "tokens_per_second": stream.tokens_per_second,
-                    }
-                )
-                raise
-
-        stream.__next__ = _completing_next  # type: ignore[method-assign]
+        stream = TokenStream(_observed(), on_complete=_on_complete)
         return stream
 
     # ── Model management (for UI) ────────────────────────────────────────────
 
     def is_downloaded(self, model_id: str) -> bool:
-        """Check if a model's weight files exist on disk."""
+        """Check if a model's weight files exist on disk. Result is TTL-cached."""
+        now = time.monotonic()
+        cached = self._download_cache.get(model_id)
+        if cached is not None and now < cached[1]:
+            return cached[0]
+
         local_path = _model_local_path(model_id)
-        weight_files = list(local_path.glob("*.safetensors")) + list(local_path.glob("*.npz"))
-        return bool(weight_files)
+        result = bool(
+            list(local_path.glob("*.safetensors")) + list(local_path.glob("*.npz"))
+        )
+        self._download_cache[model_id] = (result, now + _DOWNLOAD_CACHE_TTL)
+        return result
 
     def delete_model(self, model_id: str) -> None:
         """
@@ -556,20 +597,33 @@ class ModelManager:
 
             shutil.rmtree(local_path)
             logger.info("Deleted model weights at '%s'", local_path)
+        self._download_cache.pop(model_id, None)
+        self._disk_size_cache.pop(model_id, None)
 
     def download_model(self, model_id: str) -> None:
         """Download a model's weights without loading them into memory."""
         self._check_ram(model_id)
         local_path = _model_local_path(model_id)
         _ensure_model_downloaded(model_id, local_path)
+        self._download_cache.pop(model_id, None)
+        self._disk_size_cache.pop(model_id, None)
 
     def disk_size_gb(self, model_id: str) -> float | None:
         """Return disk size in GB of a downloaded model, or None if not cached."""
+        now = time.monotonic()
+        cached = self._disk_size_cache.get(model_id)
+        if cached is not None and now < cached[1]:
+            return cached[0]
+
         local_path = _model_local_path(model_id)
         if not local_path.exists():
-            return None
-        total = sum(f.stat().st_size for f in local_path.rglob("*") if f.is_file())
-        return round(total / (1024**3), 2)
+            result = None
+        else:
+            total = sum(f.stat().st_size for f in local_path.rglob("*") if f.is_file())
+            result = round(total / (1024**3), 2)
+
+        self._disk_size_cache[model_id] = (result, now + _DISK_SIZE_CACHE_TTL)
+        return result
 
 
 # Module-level singleton instance used throughout the app
