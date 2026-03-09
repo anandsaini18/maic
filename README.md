@@ -50,6 +50,16 @@ Maic is a local AI inference server built on:
 
 It turns your MacBook into a **self-hosted AI server**.
 
+Key architectural patterns:
+
+| Pattern | Where |
+|---------|-------|
+| Facade | `ModelManager` — single entry point hiding all MLX internals |
+| Adapter | `OpenAIAdapter` — translates `TokenStream` ↔ OpenAI wire format |
+| Strategy | `GenerationStrategy` — swappable sampling config per request |
+| Observer | `InferenceObserver` — pluggable hooks for token events and stats |
+| Iterator | `TokenStream` — clean iteration interface with timing metrics |
+
 ---
 
 ## 🍏 Why Apple Silicon Optimization Matters
@@ -98,9 +108,10 @@ Chat interface built with:
 - Framer Motion  
 
 ### 📦 Smart Model Management
-- One-click HuggingFace downloads  
-- Automatic RAM requirement validation  
-- Live progress tracking  
+- Dynamic model discovery from HuggingFace Hub (5-minute TTL cache, offline fallback)
+- One-click downloads with background threading
+- Automatic RAM requirement validation against curated + regex-estimated size data
+- Live download progress tracking
 
 ### 📊 Real-Time Monitoring
 - Tokens per minute (TPM)  
@@ -303,6 +314,8 @@ Tests are organized by layer:
 ## 🛣 Roadmap
 
 - ~~Benchmark suite vs llama.cpp~~ — done (see [benchmarks/](benchmarks/))
+- ~~SSE streaming optimization + event-loop offloading~~ — done (v0.3.0)
+- ~~Dynamic HuggingFace Hub model discovery~~ — done (v0.3.0)
 - Improved Metal acceleration
 - Multi-model support
 - Built-in local RAG support
