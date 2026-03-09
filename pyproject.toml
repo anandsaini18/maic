@@ -55,7 +55,7 @@ dev = [
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 # Include the root-level main.py so the installed `maic` CLI script can import it
