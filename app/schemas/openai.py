@@ -101,6 +101,29 @@ class SupportedModelList(BaseModel):
     models: list[SupportedModel]
 
 
+# ── Model status (for /v1/models/status polling endpoint) ─────────────────────
+
+
+class ModelStatus(BaseModel):
+    id: str
+    name: str
+    size_gb: float
+    feasible: bool
+    downloaded: bool
+    disk_gb: float | None
+    active: bool
+    requires_token: bool
+    downloading: bool
+    download_error: str | None
+    downloads: int
+
+
+class ModelsStatusResponse(BaseModel):
+    available_ram_gb: float
+    active_model: str | None
+    models: list[ModelStatus]
+
+
 # ── Error ─────────────────────────────────────────────────────────────────────
 
 

@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     model_id: str = "mlx-community/Phi-3.5-mini-instruct-4bit"
     # Where downloaded weights live. Model 'org/name' is stored as '{models_dir}/org--name/'
     models_dir: str = "~/models"
+    # HuggingFace organization to browse for models (override via HUB_ORG env var)
+    hub_org: str = "mlx-community"
     host: str = "0.0.0.0"
     port: int = 8000
     max_tokens: int = 512

@@ -12,9 +12,8 @@ from pydantic import BaseModel
 from app.adapters.openai_adapter import OpenAIAdapter
 from app.api.decorators import require_model, timed
 from app.core.config import default_strategy, settings
+from app.core.hub_fetcher import fetch_hub_models
 from app.core.model_manager import (
-    KNOWN_MODEL_SIZES,
-    TOKEN_REQUIRED_MODELS,
     TOTAL_RAM_GB,
     ModelLoadError,
     ModelTooLargeError,
@@ -25,16 +24,56 @@ from app.schemas.openai import (
     ChatCompletionResponse,
     ModelCard,
     ModelList,
+    ModelsStatusResponse,
+    ModelStatus,
     SupportedModelList,
 )
 
 router = APIRouter()
 
-# Track background download state so the UI can poll progress
-_download_state: dict[str, str] = {}  # model_id → "downloading" | "done" | "error: ..."
+class DownloadTracker:
+    """Tracks background download state for model IDs.
+
+    States a model can be in: not tracked, "downloading", "done", or an error message.
+    Written from daemon threads (_bg_download), read from async route handlers.
+    Python's GIL makes individual dict reads/writes atomic, so no explicit lock is needed.
+    """
+
+    def __init__(self) -> None:
+        self._state: dict[str, str] = {}
+
+    def is_downloading(self, model_id: str) -> bool:
+        return self._state.get(model_id) == "downloading"
+
+    def error(self, model_id: str) -> str | None:
+        """Return the error message if the last download failed, else None."""
+        state = self._state.get(model_id, "")
+        return state.removeprefix("error: ") if state.startswith("error: ") else None
+
+    def set_downloading(self, model_id: str) -> None:
+        self._state[model_id] = "downloading"
+
+    def set_done(self, model_id: str) -> None:
+        self._state[model_id] = "done"
+
+    def set_error(self, model_id: str, exc: Exception) -> None:
+        self._state[model_id] = f"error: {exc}"
+
+
+_downloads = DownloadTracker()
 
 # Semaphore: only one inference at a time (MLX model is not safe for concurrent use)
 _inference_semaphore = asyncio.Semaphore(1)
+
+
+def _inference_busy() -> bool:
+    """Non-blocking check whether the inference slot is currently occupied.
+
+    asyncio.Semaphore has no public locked() method (unlike asyncio.Lock), so
+    _value is read directly. This attribute has been stable across all CPython
+    versions since asyncio was introduced (3.4+).
+    """
+    return _inference_semaphore._value == 0  # type: ignore[attr-defined]
 
 
 # ── /v1/models ────────────────────────────────────────────────────────────────
@@ -53,8 +92,8 @@ async def list_models() -> ModelList:
 @router.get("/v1/models/supported", response_model=SupportedModelList)
 async def list_supported_models() -> SupportedModelList:
     """
-    Return all known models with their RAM requirements and whether they are
-    feasible on this machine (based on available unified memory).
+    Return curated models with their RAM requirements and feasibility on this machine.
+    Uses the static KNOWN_SIZES list from model_sizing for fast, offline-capable responses.
     """
     return OpenAIAdapter.build_supported_models()
 
@@ -85,7 +124,7 @@ async def chat_completions(
     """
     # Reject concurrent inference immediately rather than queuing unboundedly.
     # A client that wants to retry can simply re-send after a short delay.
-    if not _inference_semaphore._value:  # non-blocking peek
+    if _inference_busy():
         raise HTTPException(
             status_code=503,
             detail={
@@ -140,45 +179,46 @@ class ModelActionRequest(BaseModel):
     model_id: str
 
 
-@router.get("/v1/models/status")
-async def models_status() -> dict[str, Any]:
+@router.get("/v1/models/status", response_model=ModelsStatusResponse)
+async def models_status() -> ModelsStatusResponse:
     """
-    Return full status for every known model: size, feasibility, download state,
-    whether it's the currently active model, and if a HuggingFace token is needed.
-    The UI polls this to render the model selector.
+    Return full status for every model discovered from HuggingFace Hub.
 
-    Uses the module-level TOTAL_RAM_GB constant (computed once at startup)
-    instead of calling psutil.virtual_memory() on every poll.
+    Each entry includes estimated size, RAM feasibility, and live local state
+    (downloaded, active, downloading). The hub model list is cached for 5 minutes
+    and falls back to 3 offline defaults when the Hub is unreachable.
+
+    Uses the module-level TOTAL_RAM_GB constant (computed once at startup) to
+    avoid psutil calls on every 3-second poll.
     """
     safe_limit = TOTAL_RAM_GB * 0.8
+    hub_models = await fetch_hub_models()
 
-    models = []
-    for mid, size in sorted(KNOWN_MODEL_SIZES.items(), key=lambda x: x[1]):
-        downloaded = model_manager.is_downloaded(mid)
-        models.append(
-            {
-                "id": mid,
-                "name": mid.split("/")[-1],
-                "size_gb": size,
-                "feasible": size <= safe_limit,
-                "downloaded": downloaded,
-                "disk_gb": model_manager.disk_size_gb(mid) if downloaded else None,
-                "active": model_manager.model_id == mid,
-                "requires_token": mid in TOKEN_REQUIRED_MODELS,
-                "downloading": _download_state.get(mid) == "downloading",
-                "download_error": (
-                    _download_state[mid].removeprefix("error: ")
-                    if _download_state.get(mid, "").startswith("error:")
-                    else None
-                ),
-            }
+    statuses = [
+        ModelStatus(
+            id=item.id,
+            name=item.id.split("/")[-1],
+            size_gb=item.size_gb,
+            feasible=item.size_gb <= safe_limit,
+            downloaded=(dl := model_manager.is_downloaded(item.id)),
+            disk_gb=model_manager.disk_size_gb(item.id) if dl else None,
+            active=model_manager.model_id == item.id,
+            # item.gated is set from the HF API "gated" field; this is the
+            # primary signal. HubModelCache also OR's in the static GATED_MODELS
+            # frozenset as a safety-net, so requires_token is always correct.
+            requires_token=item.gated,
+            downloading=_downloads.is_downloading(item.id),
+            download_error=_downloads.error(item.id),
+            downloads=item.downloads,
         )
+        for item in sorted(hub_models, key=lambda x: x.size_gb)
+    ]
 
-    return {
-        "available_ram_gb": round(TOTAL_RAM_GB, 1),
-        "active_model": model_manager.model_id,
-        "models": models,
-    }
+    return ModelsStatusResponse(
+        available_ram_gb=round(TOTAL_RAM_GB, 1),
+        active_model=model_manager.model_id,
+        models=statuses,
+    )
 
 
 @router.post("/v1/models/download")
@@ -188,16 +228,16 @@ async def download_model(req: ModelActionRequest) -> dict[str, str]:
     if model_manager.is_downloaded(mid):
         return {"status": "already_downloaded"}
 
-    if _download_state.get(mid) == "downloading":
+    if _downloads.is_downloading(mid):
         return {"status": "already_downloading"}
 
     def _bg_download() -> None:
-        _download_state[mid] = "downloading"
+        _downloads.set_downloading(mid)
         try:
             model_manager.download_model(mid)
-            _download_state[mid] = "done"
+            _downloads.set_done(mid)
         except Exception as exc:
-            _download_state[mid] = f"error: {exc}"
+            _downloads.set_error(mid, exc)
 
     threading.Thread(target=_bg_download, daemon=True).start()
     return {"status": "started"}

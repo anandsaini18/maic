@@ -151,7 +151,7 @@ class TestBuildSupportedModels:
 
     @patch("app.adapters.openai_adapter.psutil")
     def test_requires_token_propagated(self, mock_psutil):
-        from app.core.model_manager import TOKEN_REQUIRED_MODELS
+        from app.core.model_sizing import GATED_MODELS
 
         mem = Mock()
         mem.total = 128 * (1024**3)
@@ -159,4 +159,4 @@ class TestBuildSupportedModels:
 
         result = OpenAIAdapter.build_supported_models()
         for model in result.models:
-            assert model.requires_token == (model.id in TOKEN_REQUIRED_MODELS)
+            assert model.requires_token == (model.id in GATED_MODELS)

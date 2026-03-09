@@ -15,7 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.routes import _download_state, router
+from app.api.routes import _downloads, router
 from app.core.model_manager import ModelLoadError, ModelTooLargeError
 from app.core.token_stream import TokenStream
 
@@ -24,10 +24,10 @@ from app.core.token_stream import TokenStream
 
 @pytest.fixture(autouse=True)
 def _clean_download_state():
-    """Reset module-level download state between tests."""
-    _download_state.clear()
+    """Reset download tracker state between tests."""
+    _downloads._state.clear()
     yield
-    _download_state.clear()
+    _downloads._state.clear()
 
 
 @pytest.fixture
@@ -246,7 +246,7 @@ class TestDownloadModel:
         assert resp.json()["status"] == "already_downloaded"
 
     def test_already_in_progress(self, client, mm):
-        _download_state["org/m"] = "downloading"
+        _downloads.set_downloading("org/m")
         resp = client.post("/v1/models/download", json={"model_id": "org/m"})
         assert resp.json()["status"] == "already_downloading"
 
@@ -295,16 +295,18 @@ class TestModelsStatus:
             assert key in m, f"missing key: {key}"
 
     @patch("psutil.virtual_memory")
-    def test_download_error_extracted(self, mock_vm, client, mm):
+    @patch("app.api.routes.fetch_hub_models")
+    def test_download_error_extracted(self, mock_hub, mock_vm, client, mm):
         mem = Mock()
         mem.total = 16 * (1024**3)
         mock_vm.return_value = mem
         mm.model_id = None
 
-        from app.core.model_manager import KNOWN_MODEL_SIZES
+        from app.core.hub_fetcher import HubModel
 
-        mid = next(iter(KNOWN_MODEL_SIZES))
-        _download_state[mid] = "error: connection timeout"
+        mid = "mlx-community/SmolLM2-1.7B-Instruct-4bit"
+        mock_hub.return_value = [HubModel(id=mid, size_gb=1.0, downloads=0, gated=False)]
+        _downloads.set_error(mid, Exception("connection timeout"))
 
         resp = client.get("/v1/models/status")
         target = next(m for m in resp.json()["models"] if m["id"] == mid)

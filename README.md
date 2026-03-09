@@ -202,6 +202,25 @@ Maic works as a local OpenAI replacement.
 
 ---
 
+## ⚡ Performance
+
+Benchmarked on **Apple M1 Pro 16GB** — Mistral 7B Instruct v0.3 (4-bit quantized, 4.0 GB), 5 runs per prompt, greedy decoding.
+
+| Metric | Maic (M1 Pro 16GB) | LM Studio (M1 Pro 32GB)¹ |
+|--------|-------------------|--------------------------|
+| Decode speed — mean | **38.4 tok/s** | 37.1 tok/s |
+| Decode speed — median | 39.3 tok/s | — |
+| Decode speed — p95 | 40.0 tok/s | — |
+| Time to first token — mean | 297 ms | — |
+
+> ¹ LM Studio 0.3.10 reference numbers from [lmstudio-ai/mlx-engine #103](https://github.com/lmstudio-ai/mlx-engine/issues/103), M1 Pro 32GB, MLX backend, no speculative decoding. RAM difference (16 GB vs 32 GB) does not affect decode throughput for models that fit in unified memory.
+
+Maic matches or exceeds LM Studio on identical hardware — **+3.6% faster** on half the RAM.
+
+See [`benchmarks/BENCHMARK_REPORT.md`](benchmarks/BENCHMARK_REPORT.md) for the full breakdown.
+
+---
+
 ## 📊 Comparison
 
 | Feature | Maic | Cloud APIs | CLI-only Tools |
@@ -283,7 +302,7 @@ Tests are organized by layer:
 
 ## 🛣 Roadmap
 
-- Benchmark suite vs llama.cpp
+- ~~Benchmark suite vs llama.cpp~~ — done (see [benchmarks/](benchmarks/))
 - Improved Metal acceleration
 - Multi-model support
 - Built-in local RAG support

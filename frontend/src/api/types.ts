@@ -11,6 +11,7 @@ export interface Model {
   requires_token: boolean;
   downloading: boolean;
   download_error: string | null;
+  downloads: number;
 }
 
 export interface ModelsStatus {

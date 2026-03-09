@@ -6,8 +6,6 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from app.core.model_manager import (
-    KNOWN_MODEL_SIZES,
-    TOKEN_REQUIRED_MODELS,
     InferenceObserver,
     ModelLoadError,
     ModelManager,
@@ -16,6 +14,7 @@ from app.core.model_manager import (
     _ensure_model_downloaded,
     _model_local_path,
 )
+from app.core.model_sizing import GATED_MODELS, KNOWN_SIZES, KNOWN_SIZES_BY_RAM
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tests for _model_local_path
@@ -582,28 +581,23 @@ class TestModelManagement:
 class TestConstants:
     """Tests for model constants and configuration."""
 
-    def test_known_model_sizes_not_empty(self):
-        """KNOWN_MODEL_SIZES should have models defined."""
-        assert len(KNOWN_MODEL_SIZES) > 0
+    def test_known_sizes_not_empty(self):
+        """KNOWN_SIZES should have models defined."""
+        assert len(KNOWN_SIZES) > 0
 
-    def test_token_required_models_are_subset(self):
-        """TOKEN_REQUIRED_MODELS should only contain models in KNOWN_MODEL_SIZES."""
-        for model_id in TOKEN_REQUIRED_MODELS:
-            assert model_id in KNOWN_MODEL_SIZES
+    def test_gated_models_are_subset_of_known_sizes(self):
+        """GATED_MODELS should only reference models present in KNOWN_SIZES."""
+        for model_id in GATED_MODELS:
+            assert model_id in KNOWN_SIZES
 
-    def test_feasible_by_ram_is_sorted(self):
-        """FEASIBLE_BY_RAM should be sorted by size."""
-        from app.core.model_manager import FEASIBLE_BY_RAM
-
-        sizes = [size for _, size in FEASIBLE_BY_RAM]
+    def test_known_sizes_by_ram_is_sorted(self):
+        """KNOWN_SIZES_BY_RAM should be sorted by ascending size."""
+        sizes = [size for _, size in KNOWN_SIZES_BY_RAM]
         assert sizes == sorted(sizes)
 
     def test_default_model_in_known_sizes(self):
-        """Default model should be in KNOWN_MODEL_SIZES."""
-        with patch("app.core.model_manager.settings") as mock_settings:
-            mock_settings.model_id = "mlx-community/Phi-3.5-mini-instruct-4bit"
-
-            assert mock_settings.model_id in KNOWN_MODEL_SIZES
+        """Default model should be in KNOWN_SIZES."""
+        assert "mlx-community/Phi-3.5-mini-instruct-4bit" in KNOWN_SIZES
 
 
 # ─────────────────────────────────────────────────────────────────────────────

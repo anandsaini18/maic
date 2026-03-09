@@ -10,6 +10,7 @@ from typing import Any, Protocol, runtime_checkable
 import psutil
 
 from app.core.config import GenerationStrategy, settings
+from app.core.model_sizing import KNOWN_SIZES, KNOWN_SIZES_BY_RAM
 from app.core.token_stream import TokenStream
 
 logger = logging.getLogger(__name__)
@@ -70,46 +71,12 @@ def _ensure_model_downloaded(model_id: str, local_path: Path) -> None:
     logger.info("Download complete: %s", local_path)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Known model sizes (GiB) — used for RAM feasibility checks and UI suggestions
-# ─────────────────────────────────────────────────────────────────────────────
-
-KNOWN_MODEL_SIZES: dict[str, float] = {
-    # Open models (no token required)
-    "mlx-community/SmolLM2-1.7B-Instruct-4bit": 1.0,
-    "mlx-community/Phi-3.5-mini-instruct-4bit": 2.3,  # ← default
-    "mlx-community/Qwen3-4B-Instruct-2507-4bit": 2.5,
-    "mlx-community/gemma-3-4b-it-4bit": 2.6,
-    "mlx-community/Mistral-7B-Instruct-v0.3-4bit": 4.0,
-    "mlx-community/Qwen3-8B-4bit": 5.0,
-    # Gated models (Meta license — accept at hf.co/meta-llama first)
-    "mlx-community/Llama-3.2-1B-Instruct-4bit": 0.7,
-    "mlx-community/Llama-3.2-3B-Instruct-4bit": 1.8,
-    "mlx-community/Llama-3.1-8B-Instruct-4bit": 4.9,
-    "mlx-community/Llama-3.3-70B-Instruct-4bit": 40.0,
-    # Unfeasible on any MacBook (included for reference)
-    "mlx-community/Kimi-K2.5": 658.0,
-}
-
-# Models requiring HuggingFace authentication (gated behind license agreements)
-TOKEN_REQUIRED_MODELS: frozenset[str] = frozenset(
-    {
-        "mlx-community/Llama-3.2-1B-Instruct-4bit",
-        "mlx-community/Llama-3.2-3B-Instruct-4bit",
-        "mlx-community/Llama-3.1-8B-Instruct-4bit",
-        "mlx-community/Llama-3.3-70B-Instruct-4bit",
-    }
-)
-
-# Sorted by size for easy lookup by RAM tier
-FEASIBLE_BY_RAM: list[tuple[str, float]] = sorted(KNOWN_MODEL_SIZES.items(), key=lambda x: x[1])
-
 # Guard against pathological stop strings that can delay visible streaming.
 # Real EOS markers are short (< 20 chars), so 64 keeps correctness while
 # preventing whole-response buffering if a tokenizer emits a bad marker.
 MAX_STOP_LOOKBACK_CHARS = 64
 
-_DOWNLOAD_CACHE_TTL = 30.0   # seconds
+_DOWNLOAD_CACHE_TTL = 30.0  # seconds
 _DISK_SIZE_CACHE_TTL = 60.0  # seconds
 
 
@@ -226,15 +193,15 @@ class ModelManager:
         """
         Fail early if model needs more than 80% of available RAM.
 
-        Looks up model size in KNOWN_MODEL_SIZES and suggests feasible alternatives.
-        Unknown models skip this check and let MLX fail later if needed.
+        Looks up model size in KNOWN_SIZES (model_sizing) and suggests feasible
+        alternatives. Unknown models skip this check and let MLX fail later if needed.
 
         Reads psutil directly (not the cached constant) so that tests can patch
         psutil.virtual_memory to simulate different RAM configurations. This is
         acceptable because _check_ram is called only at model-load time, not on
         every request, so the psutil call cost is negligible.
         """
-        required_gb = KNOWN_MODEL_SIZES.get(model_id)
+        required_gb = KNOWN_SIZES.get(model_id)
         if required_gb is None:
             return  # Model size unknown; let MLX attempt to load it
 
@@ -243,7 +210,9 @@ class ModelManager:
 
         if required_gb > safe_limit:
             feasible = [
-                f"  - {mid} (~{size:.1f} GB)" for mid, size in FEASIBLE_BY_RAM if size <= safe_limit
+                f"  - {mid} (~{size:.1f} GB)"
+                for mid, size in KNOWN_SIZES_BY_RAM
+                if size <= safe_limit
             ]
             feasible_str = "\n".join(feasible) if feasible else "  (none in known list)"
             raise ModelTooLargeError(
@@ -389,10 +358,12 @@ class ModelManager:
         # fall back to a lazy import so sys.modules patches in tests still work correctly.
         if self._mx is None:
             import mlx.core as mx
+
             self._mx = mx
         mx = self._mx
         if self._mlx_lm is None:
-            import mlx_lm  # type: ignore[import]
+            import mlx_lm
+
             self._mlx_lm = mlx_lm
         mlx_lm = self._mlx_lm
 
@@ -579,9 +550,7 @@ class ModelManager:
             return cached[0]
 
         local_path = _model_local_path(model_id)
-        result = bool(
-            list(local_path.glob("*.safetensors")) + list(local_path.glob("*.npz"))
-        )
+        result = bool(list(local_path.glob("*.safetensors")) + list(local_path.glob("*.npz")))
         self._download_cache[model_id] = (result, now + _DOWNLOAD_CACHE_TTL)
         return result
 

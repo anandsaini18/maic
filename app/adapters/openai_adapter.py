@@ -8,7 +8,7 @@ from typing import Literal
 
 import psutil
 
-from app.core.model_manager import FEASIBLE_BY_RAM, TOKEN_REQUIRED_MODELS
+from app.core.model_sizing import GATED_MODELS, KNOWN_SIZES_BY_RAM
 from app.core.token_stream import TokenStream
 from app.schemas.openai import (
     ChatChoice,
@@ -207,8 +207,8 @@ class OpenAIAdapter:
                 size_gb=size,
                 min_ram_gb=round(size / 0.8, 1),
                 feasible=size <= safe_limit,
-                requires_token=mid in TOKEN_REQUIRED_MODELS,
+                requires_token=mid in GATED_MODELS,
             )
-            for mid, size in FEASIBLE_BY_RAM
+            for mid, size in KNOWN_SIZES_BY_RAM
         ]
         return SupportedModelList(available_ram_gb=round(available_gb, 1), models=models)
