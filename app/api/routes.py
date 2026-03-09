@@ -31,6 +31,7 @@ from app.schemas.openai import (
 
 router = APIRouter()
 
+
 class DownloadTracker:
     """Tracks background download state for model IDs.
 

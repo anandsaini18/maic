@@ -1,0 +1,127 @@
+name: Release
+
+# Triggers on version tags: git tag v1.0.0 && git push origin v1.0.0
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write  # needed to create GitHub releases
+
+jobs:
+
+  # ── Verify CI is green before releasing ───────────────────────────────────
+  verify:
+    name: "Verify CI"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: |
+          ruff check app/ tests/
+          black --check app/ tests/
+          mypy app/
+
+      - name: Test
+        run: pytest --tb=short -q
+
+  # ── Build frontend + Python distribution ──────────────────────────────────
+  build:
+    name: "Build"
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Build Python distribution
+        run: |
+          pip install build
+          python -m build
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  # ── Create GitHub Release with changelog excerpt ───────────────────────────
+  github-release:
+    name: "GitHub Release"
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      # Extract the section for this tag's version from CHANGELOG.md.
+      # GITHUB_REF_NAME is a runner environment variable (not a user-controlled
+      # expression), so it is safe to use directly in this shell script.
+      - name: Extract changelog for this version
+        id: changelog
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          # Pull the block between this version header and the next ## header
+          awk "/^## \[$VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > release_notes.md
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Maic v${{ steps.changelog.outputs.version }}"
+          body_path: release_notes.md
+          files: dist/*
+          draft: false
+          prerelease: false
+
+  # ── Publish to PyPI ────────────────────────────────────────────────────────
+  pypi:
+    name: "Publish to PyPI"
+    runs-on: ubuntu-latest
+    needs: github-release
+    environment: pypi  # requires a GitHub environment named "pypi" with PYPI_API_TOKEN secret
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}

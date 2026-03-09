@@ -14,18 +14,11 @@ This project adheres to the Contributor Covenant Code of Conduct. By participati
    git clone https://github.com/yourusername/maic.git
    cd maic
    ```
-3. **Create a virtual environment:**
+3. **Install everything** (Python venv + MLX + frontend) in one step:
    ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
+   just setup
    ```
-4. **Install frontend dependencies:**
-   ```bash
-   cd frontend
-   npm install
-   cd ..
-   ```
+   Requires Python 3.10+, Node.js 22+, and [`just`](https://github.com/casey/just) (`brew install just`).
 
 ## Development Workflow
 

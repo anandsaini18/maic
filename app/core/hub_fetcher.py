@@ -33,7 +33,9 @@ class HubModel:
 DEFAULT_FALLBACK: tuple[HubModel, ...] = (
     HubModel(id="mlx-community/SmolLM2-1.7B-Instruct-4bit", size_gb=1.0, downloads=0, gated=False),
     HubModel(id="mlx-community/Phi-3.5-mini-instruct-4bit", size_gb=2.3, downloads=0, gated=False),
-    HubModel(id="mlx-community/Mistral-7B-Instruct-v0.3-4bit", size_gb=4.0, downloads=0, gated=False),
+    HubModel(
+        id="mlx-community/Mistral-7B-Instruct-v0.3-4bit", size_gb=4.0, downloads=0, gated=False
+    ),
 )
 
 

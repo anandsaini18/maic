@@ -115,7 +115,7 @@ def create_app(model_id: str) -> FastAPI:
             "OpenAI-compatible REST API for local MLX models on Apple Silicon.\n\n"
             "**Patterns**: Facade · Iterator · Strategy · Decorator · Observer · Adapter"
         ),
-        version="0.1.0",
+        version="1.0.0",
         lifespan=make_lifespan(model_id),
     )
     app.include_router(router)

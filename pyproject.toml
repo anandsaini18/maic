@@ -1,10 +1,32 @@
 [project]
 name = "maic"
-version = "0.1.0"
+version = "1.0.0"
 description = "OpenAI-compatible REST API for local MLX models on Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+authors = [
+    { name = "Maic Contributors" },
+]
+keywords = ["llm", "mlx", "apple-silicon", "openai", "local-ai", "inference"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/anandsaini18/maic"
+Repository = "https://github.com/anandsaini18/maic"
+Changelog = "https://github.com/anandsaini18/maic/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/anandsaini18/maic/issues"
 
 dependencies = [
     "fastapi>=0.111.0",
@@ -30,6 +52,14 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.5.0",
 ]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[tool.setuptools]
+# Include the root-level main.py so the installed `maic` CLI script can import it
+py-modules = ["main"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
