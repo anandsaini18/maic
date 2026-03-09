@@ -1,3 +1,11 @@
+r"""Model size estimation and curated size data for RAM feasibility checks.
+
+Provides three resolution levels for determining a model's memory footprint:
+curated ``KNOWN_SIZES`` (human-verified), regex-based ``estimate_size_gb``
+(heuristic from model name), and a 7.0 GiB fallback. Also maintains the
+``GATED_MODELS`` frozenset for HuggingFace token requirements.
+"""
+
 from __future__ import annotations
 
 import logging

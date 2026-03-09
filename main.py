@@ -1,3 +1,9 @@
+r"""Application entry point — CLI parsing, FastAPI app factory, and server startup.
+
+Wires together the FastAPI application with model lifecycle management,
+frontend static file serving, and uvicorn. Run directly or via ``just dev``.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -24,6 +30,11 @@ logger = logging.getLogger(__name__)
 # ── CLI argument parsing ──────────────────────────────────────────────────────
 
 def parse_args() -> argparse.Namespace:
+    r"""Parse CLI arguments for model selection, host, and port overrides.
+
+    Returns:
+        argparse.Namespace: Parsed arguments with ``model``, ``host``, and ``port`` attributes.
+    """
     parser = argparse.ArgumentParser(
         description="Local LLM REST server (MLX + OpenAI-compatible API)",
     )
@@ -53,6 +64,15 @@ def parse_args() -> argparse.Namespace:
 # ── FastAPI lifespan — model load on startup ──────────────────────────────────
 
 def make_lifespan(model_id: str):
+    r"""Create a FastAPI lifespan context manager that loads the model on startup.
+
+    Args:
+        model_id (str): HuggingFace model identifier to load when the server starts.
+
+    Returns:
+        Callable: An async context manager suitable for FastAPI's ``lifespan`` parameter.
+    """
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
@@ -109,6 +129,17 @@ def configure_frontend(app: FastAPI, static_dir: Path) -> None:
 
 
 def create_app(model_id: str) -> FastAPI:
+    r"""Build and configure the FastAPI application instance.
+
+    Sets up the OpenAI-compatible API router, frontend static file serving,
+    and model lifespan management.
+
+    Args:
+        model_id (str): HuggingFace model identifier to load at startup.
+
+    Returns:
+        FastAPI: Fully configured application ready for ``uvicorn.run()``.
+    """
     app = FastAPI(
         title="Local LLM Server",
         description=(
@@ -127,6 +158,11 @@ def create_app(model_id: str) -> FastAPI:
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    r"""Server entrypoint — resolve config, check RAM feasibility, and start uvicorn.
+
+    Priority for settings: CLI flag > env var / ``.env`` > built-in default.
+    Exits with code 1 if the requested model exceeds available RAM.
+    """
     args = parse_args()
 
     # CLI flag > env var / .env > built-in default (model selection priority)

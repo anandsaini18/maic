@@ -1,3 +1,12 @@
+r"""MLX model lifecycle management — download, load, generate, and delete.
+
+Implements the Facade pattern: the rest of the app calls ``model_manager.load()``
+and ``model_manager.generate()`` without knowing about MLX internals, tokenizer
+chat templates, or stop-string detection. Also implements the Observer pattern
+for generation event broadcasting and provides TTL-cached disk queries for
+the UI polling endpoint.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -106,9 +115,17 @@ class InferenceObserver(Protocol):
     Register with: model_manager.register_observer(your_observer)
     """
 
-    def on_token(self, token: str) -> None: ...
-    def on_complete(self, stats: dict[str, Any]) -> None: ...
-    def on_error(self, error: Exception) -> None: ...
+    def on_token(self, token: str) -> None:
+        r"""Called each time a new token is generated."""
+        ...
+
+    def on_complete(self, stats: dict[str, Any]) -> None:
+        r"""Called when generation finishes with performance stats."""
+        ...
+
+    def on_error(self, error: Exception) -> None:
+        r"""Called when generation fails with the raised exception."""
+        ...
 
 
 class StatsObserver:
@@ -121,9 +138,10 @@ class StatsObserver:
     """
 
     def on_token(self, token: str) -> None:
-        pass  # no-op per token; stats aggregated at on_complete
+        r"""No-op — stats are aggregated at completion, not per token."""
 
     def on_complete(self, stats: dict[str, Any]) -> None:
+        r"""Log token count, elapsed time, and throughput at INFO level."""
         logger.info(
             "Inference complete — %d tokens in %.2fs (%.1f tok/s)",
             stats["token_count"],
@@ -132,6 +150,7 @@ class StatsObserver:
         )
 
     def on_error(self, error: Exception) -> None:
+        r"""Log the inference error at ERROR level."""
         logger.error("Inference error: %s", error)
 
 

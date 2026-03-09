@@ -1,3 +1,10 @@
+r"""Route decorators for cross-cutting concerns (model readiness, request timing).
+
+Provides ``@require_model`` (returns 503 if no model is loaded) and ``@timed``
+(logs wall-clock duration at DEBUG level). Applied to route handlers via
+standard decorator stacking.
+"""
+
 from __future__ import annotations
 
 import logging

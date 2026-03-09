@@ -1,3 +1,10 @@
+r"""Adapter layer translating between internal types and the OpenAI wire format.
+
+Converts ``TokenStream`` output into OpenAI-compatible JSON for both streaming
+(SSE) and non-streaming responses. Also builds the supported-models list with
+RAM feasibility checks. All adapter methods are stateless and static.
+"""
+
 from __future__ import annotations
 
 import asyncio

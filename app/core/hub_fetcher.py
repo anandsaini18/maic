@@ -1,3 +1,11 @@
+r"""HuggingFace Hub model discovery with async TTL caching.
+
+Fetches text-generation models from the HF API, enriches them with size
+estimates from ``model_sizing``, and caches results with dual TTLs
+(success vs. error) for responsive recovery from transient failures.
+Falls back to three offline defaults when the Hub is unreachable.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -43,6 +51,14 @@ DEFAULT_FALLBACK: tuple[HubModel, ...] = (
 
 
 def _build_url(org: str) -> str:
+    r"""Construct the HuggingFace API URL for listing text-generation models by *org*.
+
+    Args:
+        org (str): HuggingFace organization name (e.g. ``"mlx-community"``).
+
+    Returns:
+        str: Fully formed API URL with query parameters for filtering and sorting.
+    """
     return (
         "https://huggingface.co/api/models"
         f"?author={org}"
@@ -170,6 +186,10 @@ _hub_cache: HubModelCache | None = None
 
 
 def _get_cache() -> HubModelCache:
+    r"""Return the module-level ``HubModelCache`` singleton, creating it on first access.
+
+    Defers settings import so this module can be imported before the event loop starts.
+    """
     global _hub_cache
     if _hub_cache is None:
         from app.core.config import settings

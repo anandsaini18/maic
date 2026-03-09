@@ -1,3 +1,10 @@
+r"""Token stream wrapper providing iteration and performance metrics.
+
+Wraps the raw MLX token generator behind a standard Python iterator interface
+with built-in timing, token counting, and an ``on_complete`` callback for
+observer notification. Consumed by both SSE streaming and non-streaming routes.
+"""
+
 from __future__ import annotations
 
 import time

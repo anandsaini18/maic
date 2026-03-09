@@ -1,3 +1,11 @@
+r"""Server configuration and generation strategy definitions.
+
+``Settings`` loads runtime config from environment variables / ``.env`` via
+Pydantic. ``GenerationStrategy`` defines the Protocol for swappable sampling
+strategies (``default_strategy``, ``greedy_strategy``), with LRU-cached sampler
+construction to avoid rebuilding on repeated requests.
+"""
+
 from __future__ import annotations
 
 from functools import lru_cache

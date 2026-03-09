@@ -12,7 +12,6 @@ keywords = ["llm", "mlx", "apple-silicon", "openai", "local-ai", "inference"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

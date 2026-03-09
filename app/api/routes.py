@@ -1,3 +1,10 @@
+r"""FastAPI route handlers for the OpenAI-compatible API.
+
+Defines all HTTP endpoints: chat completions (streaming and non-streaming),
+model listing, model status polling, download/load/delete management, and
+supported-model queries. Enforces single-inference concurrency via semaphore.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -44,6 +51,7 @@ class DownloadTracker:
         self._state: dict[str, str] = {}
 
     def is_downloading(self, model_id: str) -> bool:
+        r"""Return ``True`` if a background download is currently in progress for *model_id*."""
         return self._state.get(model_id) == "downloading"
 
     def error(self, model_id: str) -> str | None:
@@ -52,12 +60,15 @@ class DownloadTracker:
         return state.removeprefix("error: ") if state.startswith("error: ") else None
 
     def set_downloading(self, model_id: str) -> None:
+        r"""Mark *model_id* as currently downloading."""
         self._state[model_id] = "downloading"
 
     def set_done(self, model_id: str) -> None:
+        r"""Mark *model_id* download as successfully completed."""
         self._state[model_id] = "done"
 
     def set_error(self, model_id: str, exc: Exception) -> None:
+        r"""Record a download failure for *model_id* with the exception message."""
         self._state[model_id] = f"error: {exc}"
 
 
@@ -177,6 +188,12 @@ async def chat_completions(
 
 
 class ModelActionRequest(BaseModel):
+    r"""Request body for model management endpoints (download, load).
+
+    Args:
+        model_id (str): HuggingFace model identifier to act upon.
+    """
+
     model_id: str
 
 
