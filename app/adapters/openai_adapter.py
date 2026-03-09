@@ -37,33 +37,47 @@ async def _async_token_iter(stream: TokenStream) -> AsyncGenerator[str, None]:
       keeping all queue interactions on the event loop thread.
     - The async generator awaits tokens from the queue, yielding control to the
       event loop between tokens so other requests can be served concurrently.
-    - A None sentinel signals end-of-stream.
+    - None signals clean end-of-stream; an Exception instance signals an error.
+
+    Exception propagation (ExceptionWrapper pattern):
+    - If the producer raises, the exception object itself is pushed into the queue
+      instead of being swallowed by the unawaited run_in_executor Future.
+    - The async consumer checks each item: strings are yielded, None breaks the
+      loop cleanly, and a BaseException instance is re-raised on the event loop
+      so the SSE handler can surface a proper HTTP 500 to the client.
 
     The queue has a bounded size (32) to provide light back-pressure: if the
     consumer (SSE writer) falls behind the producer, the producer pauses rather
     than buffering the entire response in memory.
     """
     loop = asyncio.get_running_loop()
-    queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=32)
+    # Queue carries tokens (str), a clean-end sentinel (None), or a forwarded
+    # exception (BaseException) — never both None and an exception for the same error.
+    queue: asyncio.Queue[str | BaseException | None] = asyncio.Queue(maxsize=32)
 
     def _produce() -> None:
         try:
             for token in stream:
                 loop.call_soon_threadsafe(queue.put_nowait, token)
         except Exception as exc:
-            # Surface the exception as a sentinel so the async side can re-raise
-            loop.call_soon_threadsafe(queue.put_nowait, None)
-            raise exc
-        finally:
+            # Push the live exception into the queue so the async side can
+            # re-raise it on the event loop thread.  Do NOT raise here — the
+            # Future returned by run_in_executor is never awaited, so any
+            # exception raised in _produce would be silently discarded.
+            loop.call_soon_threadsafe(queue.put_nowait, exc)
+        else:
+            # Clean completion: send the None sentinel exactly once.
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
     loop.run_in_executor(None, _produce)
 
     while True:
-        token = await queue.get()
-        if token is None:
+        item = await queue.get()
+        if item is None:
             break
-        yield token
+        if isinstance(item, BaseException):
+            raise item
+        yield item
 
 
 class OpenAIAdapter:

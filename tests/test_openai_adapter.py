@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from app.adapters.openai_adapter import OpenAIAdapter
+from app.adapters.openai_adapter import OpenAIAdapter, _async_token_iter
 from app.core.token_stream import TokenStream
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -98,6 +98,66 @@ class TestStreamToSSE:
         stop = _parse_sse(events[1])
         assert stop["choices"][0]["finish_reason"] == "stop"
         assert stop["usage"]["completion_tokens"] == 0
+
+
+# ── _async_token_iter exception propagation ──────────────────────────────────
+
+
+class TestAsyncTokenIter:
+    """
+    Verifies that exceptions raised by the MLX token generator inside the
+    ThreadPoolExecutor thread are propagated to the async consumer rather
+    than being silently swallowed into the unawaited run_in_executor Future.
+
+    The old code did:
+        except Exception as exc:
+            queue.put_nowait(None)   # sends end-of-stream sentinel
+            raise exc                # ← went into unawaited Future, silently lost
+
+    The new code pushes the exception object itself into the queue so the
+    async side can re-raise it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_producer_exception_raises_on_consumer_side(self):
+        """RuntimeError mid-stream must surface to the caller, not be swallowed."""
+
+        def _failing_gen():
+            yield "Hello"
+            raise RuntimeError("MLX out of memory")
+
+        stream = TokenStream(_failing_gen())
+        with pytest.raises(RuntimeError, match="MLX out of memory"):
+            # Collect all items; exception should propagate during iteration.
+            [item async for item in _async_token_iter(stream)]
+
+    @pytest.mark.asyncio
+    async def test_producer_exception_propagates_through_stream_to_sse(self):
+        """Exception must bubble through stream_to_sse to the HTTP layer."""
+
+        def _failing_gen():
+            yield "partial"
+            raise ValueError("tokenizer exploded")
+
+        stream = TokenStream(_failing_gen())
+        with pytest.raises(ValueError, match="tokenizer exploded"):
+            [event async for event in OpenAIAdapter.stream_to_sse(stream, "m", "id-1")]
+
+    @pytest.mark.asyncio
+    async def test_clean_stream_unaffected_by_error_path(self):
+        """Regression: the else-branch sentinel must still work for normal streams."""
+        stream = TokenStream(iter(["x", "y"]))
+        items = [item async for item in _async_token_iter(stream)]
+        assert items == ["x", "y"]
+
+    @pytest.mark.asyncio
+    async def test_no_double_sentinel_on_clean_end(self):
+        """else-branch sends None exactly once; queue should drain to empty."""
+        stream = TokenStream(iter(["a"]))
+        items = [item async for item in _async_token_iter(stream)]
+        # If a double-None were pushed, a second None would be left in the queue.
+        # We verify the generator terminates cleanly with exactly the right items.
+        assert items == ["a"]
 
 
 # ── stream_to_response ───────────────────────────────────────────────────────

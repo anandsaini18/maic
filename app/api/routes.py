@@ -74,7 +74,7 @@ def _inference_busy() -> bool:
     _value is read directly. This attribute has been stable across all CPython
     versions since asyncio was introduced (3.4+).
     """
-    return _inference_semaphore._value == 0  # type: ignore[attr-defined]
+    return _inference_semaphore._value == 0
 
 
 # ── /v1/models ────────────────────────────────────────────────────────────────

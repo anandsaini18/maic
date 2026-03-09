@@ -6,7 +6,7 @@ import logging
 import time
 import urllib.request
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from app.core.model_sizing import GATED_MODELS, resolve_size_gb
 
@@ -61,7 +61,7 @@ def _fetch_raw(org: str) -> list[dict[str, Any]]:
     req = urllib.request.Request(_build_url(org), headers={"User-Agent": "maic/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode())
+            return cast(list[dict[str, Any]], json.loads(resp.read().decode()))
     except Exception as exc:
         logger.warning("HuggingFace Hub unreachable: %s", exc)
         return []
@@ -159,7 +159,7 @@ class HubModelCache:
                     )
                 # else: keep stale cache alive; retry after error_ttl
 
-        return self._models  # type: ignore[return-value]  # always set above
+        return self._models
 
 
 # ── Module-level singleton ────────────────────────────────────────────────────
