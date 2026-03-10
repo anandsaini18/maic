@@ -333,4 +333,5 @@ MIT License.
 
 ---
 
+If you find Maic useful, please give it a ⭐ to help others find it!
 Built with ❤️ for the Apple Silicon and Mac AI community.
