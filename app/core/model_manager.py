@@ -87,6 +87,7 @@ MAX_STOP_LOOKBACK_CHARS = 64
 
 _DOWNLOAD_CACHE_TTL = 30.0  # seconds
 _DISK_SIZE_CACHE_TTL = 60.0  # seconds
+_LOCAL_IDS_CACHE_TTL = 15.0  # seconds (directory list changes less frequently)
 
 
 # ── Custom Exceptions ─────────────────────────────────────────────────────────
@@ -179,11 +180,12 @@ class ModelManager:
         # Cached module references set after load() — avoids re-importing on every generate()
         self._mx: Any = None
         self._mlx_lm: Any = None
-        # Per-instance TTL caches for is_downloaded / disk_size_gb.
+        # Per-instance TTL caches for is_downloaded / disk_size_gb / local_model_ids.
         # Instance-level (not module-level) so tests that create fresh ModelManager()
         # instances start with an empty cache and don't bleed state across test runs.
         self._download_cache: dict[str, tuple[bool, float]] = {}
         self._disk_size_cache: dict[str, tuple[float | None, float]] = {}
+        self._local_ids_cache: tuple[list[str], float] | None = None
 
     # ── Observer management ──────────────────────────────────────────────────
 
@@ -449,21 +451,40 @@ class ModelManager:
             ended_by_finish_reason = False
             use_token_decode_fallback = False
 
-            def _suffix_holdback_chars(text: str) -> int:
-                if not stop_strings or not text:
-                    return 0
+            def _scan_suffix(text: str) -> tuple[int, int | None]:
+                """
+                Scan accumulated text for both holdback chars and complete stop matches.
 
-                # Keep only the longest trailing substring that matches a prefix
-                # of any stop marker; emit everything else immediately.
+                Returns (holdback_chars, stop_position) where:
+                - holdback_chars: trailing chars that might be start of a stop string
+                - stop_position: position of rightmost complete stop string match, or None
+
+                This replaces two separate scans (_suffix_holdback_chars + Layer 3 rfind)
+                with a single pass over all stop strings.
+                """
+                if not stop_strings or not text:
+                    return 0, None
+
                 holdback = 0
+                stop_pos = None
+
                 for stop in stop_strings:
-                    prefix_cap = min(len(stop) - 1, max_suffix, len(text))
-                    for n in range(prefix_cap, 0, -1):
-                        if text.endswith(stop[:n]):
-                            if n > holdback:
-                                holdback = n
-                            break
-                return holdback
+                    # Check for complete stop string match
+                    idx = text.rfind(stop)
+                    if idx != -1:
+                        # Keep the rightmost (maximum) position among all stop strings
+                        if stop_pos is None or idx > stop_pos:
+                            stop_pos = idx
+                    else:
+                        # No complete match; check for partial prefix at end (holdback)
+                        prefix_cap = min(len(stop) - 1, max_suffix, len(text))
+                        for n in range(prefix_cap, 0, -1):
+                            if text.endswith(stop[:n]):
+                                if n > holdback:
+                                    holdback = n
+                                break
+
+                return holdback, stop_pos
 
             def _decode_token_piece(token_value: Any) -> str:
                 try:
@@ -514,10 +535,12 @@ class ModelManager:
                         ended_by_finish_reason = True
                         break
 
-                    # Layer 3: Stop string found in accumulated text
-                    positions = [suffix.rfind(s) for s in stop_strings if s in suffix]
-                    if positions:
-                        clean = suffix[: max(positions)]
+                    # Layer 3 + Normal flow: use single scan for both stop detection and holdback
+                    holdback, stop_pos = _scan_suffix(suffix)
+
+                    if stop_pos is not None:
+                        # Stop string found in accumulated text
+                        clean = suffix[:stop_pos]
                         if clean:
                             self._notify_token(clean)
                             yield clean
@@ -526,7 +549,6 @@ class ModelManager:
 
                     # Normal flow: emit everything except the tiny suffix that
                     # could still be the start of a future stop string.
-                    holdback = _suffix_holdback_chars(suffix)
                     safe = suffix[:-holdback] if holdback else suffix
                     if safe:
                         self._notify_token(safe)
@@ -587,6 +609,7 @@ class ModelManager:
             logger.info("Deleted model weights at '%s'", local_path)
         self._download_cache.pop(model_id, None)
         self._disk_size_cache.pop(model_id, None)
+        self._local_ids_cache = None  # Invalidate directory listing cache
 
     def download_model(self, model_id: str) -> None:
         """Download a model's weights without loading them into memory."""
@@ -595,6 +618,7 @@ class ModelManager:
         _ensure_model_downloaded(model_id, local_path)
         self._download_cache.pop(model_id, None)
         self._disk_size_cache.pop(model_id, None)
+        self._local_ids_cache = None  # Invalidate directory listing cache
 
     def disk_size_gb(self, model_id: str) -> float | None:
         """Return disk size in GB of a downloaded model, or None if not cached."""
@@ -611,6 +635,29 @@ class ModelManager:
             result = round(total / (1024**3), 2)
 
         self._disk_size_cache[model_id] = (result, now + _DISK_SIZE_CACHE_TTL)
+        return result
+
+    def local_model_ids(self) -> list[str]:
+        """Scan the models directory and return IDs of all locally downloaded models. Result is TTL-cached."""
+        now = time.monotonic()
+        if self._local_ids_cache is not None and now < self._local_ids_cache[1]:
+            return self._local_ids_cache[0]
+
+        models_dir = Path(settings.models_dir).expanduser().resolve()
+        if not models_dir.exists():
+            result = []
+        else:
+            result = []
+            for entry in models_dir.iterdir():
+                if not entry.is_dir() or entry.name.startswith("."):
+                    continue
+                # Convert folder name back to HF model ID (org--name -> org/name)
+                model_id = entry.name.replace("--", "/", 1)
+                # Verify it actually has weight files
+                if list(entry.glob("*.safetensors")) or list(entry.glob("*.npz")):
+                    result.append(model_id)
+
+        self._local_ids_cache = (result, now + _LOCAL_IDS_CACHE_TTL)
         return result
 
 

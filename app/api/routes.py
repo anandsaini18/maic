@@ -211,6 +211,11 @@ async def models_status() -> ModelsStatusResponse:
     """
     safe_limit = TOTAL_RAM_GB * 0.8
     hub_models = await fetch_hub_models()
+    hub_ids = {item.id for item in hub_models}
+
+    # Include locally downloaded models not in the Hub list
+    local_ids = model_manager.local_model_ids()
+    local_only = [mid for mid in local_ids if mid not in hub_ids]
 
     statuses = [
         ModelStatus(
@@ -231,6 +236,25 @@ async def models_status() -> ModelsStatusResponse:
         )
         for item in sorted(hub_models, key=lambda x: x.size_gb)
     ]
+
+    # Append locally downloaded models missing from Hub
+    for mid in local_only:
+        disk = model_manager.disk_size_gb(mid) or 0.0
+        statuses.append(
+            ModelStatus(
+                id=mid,
+                name=mid.split("/")[-1],
+                size_gb=disk,
+                feasible=disk <= safe_limit,
+                downloaded=True,
+                disk_gb=disk,
+                active=model_manager.model_id == mid,
+                requires_token=False,
+                downloading=False,
+                download_error=None,
+                downloads=0,
+            )
+        )
 
     return ModelsStatusResponse(
         available_ram_gb=round(TOTAL_RAM_GB, 1),

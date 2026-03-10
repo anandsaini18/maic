@@ -37,6 +37,7 @@ def mm():
     m.is_loaded = True
     m.model_id = "test/model"
     m.is_downloaded.return_value = False
+    m.local_model_ids.return_value = []  # Required for models_status endpoint
     return m
 
 

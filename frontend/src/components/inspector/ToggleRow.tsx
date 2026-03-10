@@ -9,11 +9,11 @@ export default function ToggleRow({ label, description, value, onChange }: Props
   return (
     <div className="flex justify-between items-center py-2.5 border-t border-warm-border/50 first:border-0">
       <div className="flex flex-col gap-0.5">
-        <span className="font-display text-[11px] text-warm-text">
+        <span className="font-display text-[12px] text-warm-text">
           {label}
         </span>
         {description && (
-          <span className="font-display text-[9px] text-warm-muted leading-relaxed">
+          <span className="font-display text-[10px] text-warm-muted leading-relaxed">
             {description}
           </span>
         )}

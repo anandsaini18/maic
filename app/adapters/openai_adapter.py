@@ -31,6 +31,10 @@ from app.schemas.openai import (
 
 # ── Adapter Pattern ───────────────────────────────────────────────────────────
 
+# Cache for build_supported_models() — computed once at first call since
+# available RAM is constant for the lifetime of the process.
+_supported_models_cache: SupportedModelList | None = None
+
 
 async def _async_token_iter(stream: TokenStream) -> AsyncGenerator[str, None]:
     """
@@ -65,16 +69,21 @@ async def _async_token_iter(stream: TokenStream) -> AsyncGenerator[str, None]:
     def _produce() -> None:
         try:
             for token in stream:
-                loop.call_soon_threadsafe(queue.put_nowait, token)
+                # Use asyncio.run_coroutine_threadsafe with queue.put() (not put_nowait)
+                # so the producer thread blocks if the queue is full, applying natural
+                # back-pressure instead of raising QueueFull. This is essential for
+                # handling slow consumers without buffering the entire response.
+                future = asyncio.run_coroutine_threadsafe(queue.put(token), loop)
+                future.result()  # blocks until token is enqueued
         except Exception as exc:
             # Push the live exception into the queue so the async side can
             # re-raise it on the event loop thread.  Do NOT raise here — the
             # Future returned by run_in_executor is never awaited, so any
             # exception raised in _produce would be silently discarded.
-            loop.call_soon_threadsafe(queue.put_nowait, exc)
+            asyncio.run_coroutine_threadsafe(queue.put(exc), loop).result()
         else:
             # Clean completion: send the None sentinel exactly once.
-            loop.call_soon_threadsafe(queue.put_nowait, None)
+            asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
 
     loop.run_in_executor(None, _produce)
 
@@ -215,11 +224,17 @@ class OpenAIAdapter:
         """
         Build the response for GET /v1/models/supported.
 
-        Reads available system RAM, then for each known model computes whether it
-        fits within 80% of that RAM. Returns the full list so a UI can show which
-        models are usable on this machine right now and which require a token.
+        Computes which models fit within 80% of available system RAM. Since RAM is
+        constant for the process lifetime, the result is cached after the first call.
         """
-        available_gb = psutil.virtual_memory().total / (1024**3)
+        global _supported_models_cache
+        if _supported_models_cache is not None:
+            return _supported_models_cache
+
+        # Use the module-level constant cached at startup instead of re-calling psutil
+        from app.core.model_manager import TOTAL_RAM_GB
+
+        available_gb = TOTAL_RAM_GB
         safe_limit = available_gb * 0.8
 
         models = [
@@ -232,4 +247,7 @@ class OpenAIAdapter:
             )
             for mid, size in KNOWN_SIZES_BY_RAM
         ]
-        return SupportedModelList(available_ram_gb=round(available_gb, 1), models=models)
+        _supported_models_cache = SupportedModelList(
+            available_ram_gb=round(available_gb, 1), models=models
+        )
+        return _supported_models_cache

@@ -25,7 +25,7 @@ interface Props {
 export default function ModelTag({ variant, children }: Props) {
   return (
     <span
-      className={`font-display text-[9px] font-medium px-1.5 py-0.5 rounded uppercase tracking-wider whitespace-nowrap ${VARIANT_CLASSES[variant]}`}
+      className={`font-display text-[10px] font-medium px-1.5 py-0.5 rounded uppercase tracking-wider whitespace-nowrap ${VARIANT_CLASSES[variant]}`}
     >
       {variant === "downloading" && <Spinner />}
       {children}

@@ -15,7 +15,7 @@ export default function GenerationSettings({ settings, onChange }: Props) {
     <>
       {/* ── Sampling ─────────────────────────────────────── */}
       <div className="p-5 border-b border-warm-border">
-        <div className="font-display text-[10px] font-medium uppercase tracking-[1.5px] text-warm-muted mb-4">
+        <div className="font-display text-[11px] font-medium uppercase tracking-[1.5px] text-warm-muted mb-4">
           Sampling
         </div>
 
@@ -68,7 +68,7 @@ export default function GenerationSettings({ settings, onChange }: Props) {
 
       {/* ── Output ───────────────────────────────────────── */}
       <div className="p-5 border-b border-warm-border">
-        <div className="font-display text-[10px] font-medium uppercase tracking-[1.5px] text-warm-muted mb-4">
+        <div className="font-display text-[11px] font-medium uppercase tracking-[1.5px] text-warm-muted mb-4">
           Output
         </div>
         <SliderGroup
@@ -90,7 +90,7 @@ export default function GenerationSettings({ settings, onChange }: Props) {
 
       {/* ── System ───────────────────────────────────────── */}
       <div className="p-5 border-b border-warm-border">
-        <div className="font-display text-[10px] font-medium uppercase tracking-[1.5px] text-warm-muted mb-4">
+        <div className="font-display text-[11px] font-medium uppercase tracking-[1.5px] text-warm-muted mb-4">
           System
         </div>
         <ToggleRow

@@ -36,12 +36,12 @@ export default function ModelOption({
     >
       <div className="flex-1 min-w-0 flex flex-col gap-1">
         <div
-          className="font-display text-[11px] font-medium text-warm-text truncate"
+          className="font-display text-[12px] font-medium text-warm-text truncate"
           title={m.id}
         >
           {m.name}
         </div>
-        <div className="font-display text-[10px] text-warm-muted">
+        <div className="font-display text-[11px] text-warm-muted">
           {sizeLabel}
         </div>
         <div className="flex gap-1 flex-wrap mt-1">
@@ -89,7 +89,7 @@ export default function ModelOption({
             </>
           ) : m.downloading ? (
             <button
-              className="px-2 py-1 rounded-xs border border-warm-border bg-warm-card text-warm-muted font-display text-[10px] font-medium opacity-50 cursor-not-allowed"
+              className="px-2 py-1 rounded-xs border border-warm-border bg-warm-card text-warm-muted font-display text-[11px] font-medium opacity-50 cursor-not-allowed"
               disabled
             >
               …
