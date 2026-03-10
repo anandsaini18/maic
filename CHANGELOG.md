@@ -26,9 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`make_sampler` cached** — `@lru_cache(maxsize=16)` on `_cached_sampler(temp, top_p)` in `config.py`; repeated requests with identical generation parameters reuse the same sampler object
 - **`TokenStream._tokens` list replaced with `_count: int`** — avoids growing list allocation when only token count matters
 - **SSE `created` timestamp pre-computed** — `int(time.time())` called once before the SSE loop instead of per-chunk
+- **Release automation for stable versions** — release workflow now runs on pushes to `main`, resolves version from `pyproject.toml`, creates/pushes the corresponding `vX.Y.Z` tag, builds artifacts, creates GitHub Release notes from `CHANGELOG.md`, and publishes to PyPI
+- **Frontend package metadata aligned to release** — `frontend/package.json` and lockfile version updated to `1.0.0` to reflect project release state
 
 ### Fixed
 - Stop-string detection uses three layers: native EOS token (finish_reason == "stop"), max-token length limit (finish_reason == "length"), and rolling text-buffer scan for stop strings that leak as plain characters in quantized models. A holdback window equal to the longest stop string prevents yielding text that could be the start of an arriving marker
+- Removed stale `psutil` import and updated RAM-related tests to patch module-level RAM constants, eliminating CI-only failures caused by mismatched mocking targets
+- Frontend model selector closes cleanly without React 19 effect warnings by deferring search reset from effect body to a scheduled callback
 
 ---
 
@@ -97,20 +101,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## Planned Features (Future Releases)
+## Roadmap
 
-### [0.4.0] - Extended Model Support
-- [ ] GGUF format support
-- [ ] Custom quantization profiles
-- [ ] LoRA adapter support
-
-### [0.5.0] - Advanced Features
-- [ ] Conversation history and management
-- [ ] Export chat sessions (PDF, JSON)
-- [ ] User preferences persistence
-- [ ] Dark/Light theme toggle
-
-### [0.6.0] - Multi-User & Deployment
-- [ ] User authentication (optional)
-- [ ] Docker containerization
-- [ ] Cloud deployment guides (AWS, GCP, Azure)
+Forward-looking plans now live in `docs/CURRENT/ROADMAP.md` so this file stays strictly historical.

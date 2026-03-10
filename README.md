@@ -48,7 +48,7 @@ Maic is a local AI inference server built on:
 - React frontend
 - Fully optimized for ARM64 macOS
 
-It turns your MacBook into a **self-hosted AI server**.
+It turns your MacBook into a **self-hosted AI server** and is now at **v1.0.0 (stable)**.
 
 Key architectural patterns:
 
@@ -105,7 +105,7 @@ Compatible with:
 Chat interface built with:
 - React  
 - Tailwind CSS  
-- Framer Motion  
+- TypeScript
 
 ### 📦 Smart Model Management
 - Dynamic model discovery from HuggingFace Hub (5-minute TTL cache, offline fallback)
@@ -154,7 +154,7 @@ This automatically:
 just dev
 ```
 
-Open your browser: **http://localhost:8000**
+Open your browser at the backend address shown in the terminal (default: **http://localhost:8000**).
 
 You now have a fully local LLM running on your Mac.
 
@@ -173,12 +173,11 @@ Run `just` to see all commands:
 |---------|-------------|
 | `just setup` | Create venv + install everything |
 | `just dev` | Start the backend server |
-| `just dev-built` | Build frontend, then start backend server |
+| `just run` | Build frontend, then start backend server |
 | `just dev --model mlx-community/Llama-3.2-1B-Instruct-4bit` | Start with a specific model |
 | `just dev-frontend` | Start Vite dev server (port 5173) |
 | `just build` | Build frontend for production |
 | `just test` | Run all tests with coverage |
-| `just test-quick` | Fast test run, no coverage |
 | `just lint` | Run all linters (Python + frontend) |
 | `just fmt` | Auto-format Python code |
 | `just ci` | Run the full CI pipeline locally |
@@ -282,8 +281,6 @@ Priority: CLI flag > env var > `.env` file > built-in default.
 
 ```bash
 just test           # All tests with coverage
-just test-quick     # Fast run, no coverage
-just test-security  # Security tests only
 just lint           # All linters (Python + frontend)
 just ci             # Full CI pipeline locally
 ```
@@ -313,13 +310,14 @@ Tests are organized by layer:
 
 ## 🛣 Roadmap
 
-- ~~Benchmark suite vs llama.cpp~~ — done (see [benchmarks/](benchmarks/))
-- ~~SSE streaming optimization + event-loop offloading~~ — done (v0.3.0)
-- ~~Dynamic HuggingFace Hub model discovery~~ — done (v0.3.0)
-- Improved Metal acceleration
-- Multi-model support
-- Built-in local RAG support
-- Native macOS app packaging
+Current roadmap lives in [`docs/CURRENT/ROADMAP.md`](docs/CURRENT/ROADMAP.md).
+
+Recent milestones already shipped:
+- Stable **1.0.0** release
+- Dynamic HuggingFace model discovery with offline fallback
+- OpenAI-compatible streaming/non-streaming chat completions
+- One-click model download/load/delete lifecycle in UI + API
+- GitHub Actions release pipeline that publishes on `main` merges
 
 ---
 
