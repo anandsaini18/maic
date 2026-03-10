@@ -1,20 +1,56 @@
 name: Release
 
-# Triggers on version tags: git tag v1.0.0 && git push origin v1.0.0
 on:
   push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: write  # needed to create GitHub releases
 
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
+  # ── Resolve release version and short-circuit if already released ─────────────
+  prepare:
+    name: "Prepare Release"
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      already_released: ${{ steps.tagcheck.outputs.already_released }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version from pyproject.toml
+        id: version
+        run: |
+          VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether tag already exists
+        id: tagcheck
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "already_released=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_released=false" >> "$GITHUB_OUTPUT"
+          fi
 
   # ── Verify CI is green before releasing ───────────────────────────────────
   verify:
     name: "Verify CI"
     runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.already_released != 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +76,8 @@ jobs:
   build:
     name: "Build"
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [prepare, verify]
+    if: needs.prepare.outputs.already_released != 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -76,9 +113,12 @@ jobs:
   github-release:
     name: "GitHub Release"
     runs-on: ubuntu-latest
-    needs: build
+    needs: [prepare, build]
+    if: needs.prepare.outputs.already_released != 'true'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download dist artifacts
         uses: actions/download-artifact@v4
@@ -86,23 +126,31 @@ jobs:
           name: dist
           path: dist/
 
-      # Extract the section for this tag's version from CHANGELOG.md.
-      # GITHUB_REF_NAME is a runner environment variable (not a user-controlled
-      # expression), so it is safe to use directly in this shell script.
+      - name: Create version tag
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
+
+      # Extract the section for this version from CHANGELOG.md.
       - name: Extract changelog for this version
         id: changelog
         env:
-          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          VERSION="${TAG#v}"
           # Pull the block between this version header and the next ## header
           awk "/^## \[$VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > release_notes.md
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ ! -s release_notes.md ]; then
+            echo "No changelog section found for $VERSION in CHANGELOG.md"
+            exit 1
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Maic v${{ steps.changelog.outputs.version }}"
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: "Maic v${{ needs.prepare.outputs.version }}"
           body_path: release_notes.md
           files: dist/*
           draft: false
@@ -112,7 +160,8 @@ jobs:
   pypi:
     name: "Publish to PyPI"
     runs-on: ubuntu-latest
-    needs: github-release
+    needs: [prepare, github-release]
+    if: needs.prepare.outputs.already_released != 'true'
     environment: pypi  # requires a GitHub environment named "pypi" with PYPI_API_TOKEN secret
     steps:
       - name: Download dist artifacts
@@ -125,3 +174,4 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true

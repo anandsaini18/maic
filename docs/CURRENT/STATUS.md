@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-03-05
+Last updated: 2026-03-10
 
 ## Current State
 
@@ -28,3 +28,4 @@ Last updated: 2026-03-05
   - SSE transport now uses explicit no-transform/keep-alive headers and async flush points per chunk
   - frontend requests now send `Accept: text/event-stream` for streaming calls
 - Added `just dev-built` to build frontend and start backend in one command
+- Release workflow now triggers on pushes to `main`, derives the package version from `pyproject.toml`, creates the corresponding git tag, and publishes artifacts to GitHub Releases + PyPI (skipping if that version tag already exists)

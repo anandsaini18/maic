@@ -13,8 +13,6 @@ import time
 from collections.abc import AsyncGenerator
 from typing import Literal
 
-import psutil
-
 from app.core.model_sizing import GATED_MODELS, KNOWN_SIZES_BY_RAM
 from app.core.token_stream import TokenStream
 from app.schemas.openai import (

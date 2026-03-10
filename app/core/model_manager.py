@@ -644,10 +644,10 @@ class ModelManager:
             return self._local_ids_cache[0]
 
         models_dir = Path(settings.models_dir).expanduser().resolve()
+        result: list[str] = []
         if not models_dir.exists():
-            result = []
+            pass
         else:
-            result = []
             for entry in models_dir.iterdir():
                 if not entry.is_dir() or entry.name.startswith("."):
                     continue
