@@ -19,7 +19,9 @@ export default function ModelSelector({
   onDelete,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -33,6 +35,19 @@ export default function ModelSelector({
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
   }, []);
+
+  useEffect(() => {
+    if (open) {
+      searchInputRef.current?.focus();
+    } else {
+      setSearch("");
+    }
+  }, [open]);
+
+  const filteredModels = models.filter((m) =>
+    m.name.toLowerCase().includes(search.toLowerCase()) ||
+    m.id.toLowerCase().includes(search.toLowerCase())
+  );
 
   const active = models.find((m) => m.id === activeModel);
   const sizeLabel = active?.disk_gb
@@ -77,17 +92,33 @@ export default function ModelSelector({
         </button>
 
         {open && (
-          <div className="absolute top-full left-0 right-0 bg-warm-bg border border-warm-border border-t-0 rounded-b-sm max-h-[280px] overflow-y-auto z-[100] -mt-px">
-            {models.map((m) => (
-              <ModelOption
-                key={m.id}
-                model={m}
-                onLoad={onLoad}
-                onDownload={onDownload}
-                onDelete={onDelete}
-                onClose={() => setOpen(false)}
-              />
-            ))}
+          <div className="absolute top-full left-0 right-0 bg-warm-bg border border-warm-border border-t-0 rounded-b-sm z-[100] -mt-px flex flex-col">
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search models..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="px-3 py-2 bg-warm-card border-b border-warm-border text-sm text-warm-text placeholder-warm-muted focus:outline-none"
+            />
+            <div className="max-h-[240px] overflow-y-auto">
+              {filteredModels.length > 0 ? (
+                filteredModels.map((m) => (
+                  <ModelOption
+                    key={m.id}
+                    model={m}
+                    onLoad={onLoad}
+                    onDownload={onDownload}
+                    onDelete={onDelete}
+                    onClose={() => setOpen(false)}
+                  />
+                ))
+              ) : (
+                <div className="px-3 py-4 text-center text-sm text-warm-muted">
+                  No models found
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
