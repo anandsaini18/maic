@@ -19,9 +19,7 @@ export default function ModelSelector({
   onDelete,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -30,22 +28,11 @@ export default function ModelSelector({
         !wrapperRef.current.contains(e.target as Node)
       ) {
         setOpen(false);
-        setSearch("");
       }
     };
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
   }, []);
-
-  // Focus search input when dropdown opens
-  useEffect(() => {
-    if (open) {
-      const t = setTimeout(() => searchRef.current?.focus(), 50);
-      return () => clearTimeout(t);
-    } else {
-      setTimeout(() => setSearch(""), 0);
-    }
-  }, [open]);
 
   const active = models.find((m) => m.id === activeModel);
   const sizeLabel = active?.disk_gb
@@ -53,17 +40,6 @@ export default function ModelSelector({
     : active
       ? `~${active.size_gb} GB`
       : "";
-
-  // Filter by search, then sort: active → downloaded → feasible → rest (all by size)
-  const q = search.toLowerCase();
-  const filtered = models
-    .filter((m) => !q || m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q))
-    .sort((a, b) => {
-      if (a.active !== b.active) return a.active ? -1 : 1;
-      if (a.downloaded !== b.downloaded) return a.downloaded ? -1 : 1;
-      if (a.feasible !== b.feasible) return a.feasible ? -1 : 1;
-      return a.size_gb - b.size_gb;
-    });
 
   return (
     <div className="p-5 border-b border-warm-border">
@@ -101,46 +77,17 @@ export default function ModelSelector({
         </button>
 
         {open && (
-          <div className="absolute top-full left-0 right-0 bg-warm-bg border border-warm-border border-t-0 rounded-b-sm z-[100] -mt-px flex flex-col">
-            {/* Search */}
-            <div className="p-2 border-b border-warm-border/60 sticky top-0 bg-warm-bg z-10">
-              <input
-                ref={searchRef}
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={`Search ${models.length} models…`}
-                className="w-full font-display text-[11px] bg-warm-card border border-warm-border rounded-xs px-2.5 py-1.5 text-warm-text placeholder-warm-muted focus:outline-none focus:border-amber/50 transition-colors duration-200"
+          <div className="absolute top-full left-0 right-0 bg-warm-bg border border-warm-border border-t-0 rounded-b-sm max-h-[280px] overflow-y-auto z-[100] -mt-px">
+            {models.map((m) => (
+              <ModelOption
+                key={m.id}
+                model={m}
+                onLoad={onLoad}
+                onDownload={onDownload}
+                onDelete={onDelete}
+                onClose={() => setOpen(false)}
               />
-            </div>
-
-            {/* Model list */}
-            <div className="overflow-y-auto max-h-[260px]">
-              {filtered.length === 0 ? (
-                <div className="p-4 text-center font-display text-[10px] text-warm-muted">
-                  No models match "{search}"
-                </div>
-              ) : (
-                filtered.map((m) => (
-                  <ModelOption
-                    key={m.id}
-                    model={m}
-                    onLoad={onLoad}
-                    onDownload={onDownload}
-                    onDelete={onDelete}
-                    onClose={() => {
-                      setOpen(false);
-                      setSearch("");
-                    }}
-                  />
-                ))
-              )}
-            </div>
-
-            {/* Footer with count */}
-            <div className="px-3 py-1.5 border-t border-warm-border/40 font-display text-[10px] text-warm-muted text-right">
-              {filtered.length} of {models.length} models · mlx-community
-            </div>
+            ))}
           </div>
         )}
       </div>

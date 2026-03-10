@@ -90,17 +90,46 @@ def make_lifespan(model_id: str):
 
 # ── App factory ───────────────────────────────────────────────────────────────
 
+def _debug_log_frontend(static_dir: Path, index_exists: bool, assets_exists: bool) -> None:
+    """Append a single NDJSON debug line about frontend static discovery."""
+    try:
+        import json
+        from datetime import datetime
+
+        log_path = Path(".cursor/debug-a8dd61.log")
+        payload = {
+            "sessionId": "a8dd61",
+            "runId": "pre-fix-backend",
+            "hypothesisId": "H7",
+            "location": "main.py:configure_frontend",
+            "message": "Frontend static discovery",
+            "data": {
+                "static_dir": str(static_dir),
+                "index_exists": index_exists,
+                "assets_exists": assets_exists,
+                "timestamp_iso": datetime.utcnow().isoformat(),
+            },
+        }
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception:
+        # Best-effort only; never crash app for debug logging.
+        pass
+
+
 def configure_frontend(app: FastAPI, static_dir: Path) -> None:
     """Mount built frontend assets and root route, with clear failure mode."""
     from fastapi.responses import FileResponse, HTMLResponse
     from fastapi.staticfiles import StaticFiles
 
     static_dir = Path(static_dir)
-    if not static_dir.exists():
-        return
-
     index_file = static_dir / "index.html"
     assets_dir = static_dir / "assets"
+
+    _debug_log_frontend(static_dir, index_file.exists(), assets_dir.exists())
+
+    if not static_dir.exists():
+        return
 
     if index_file.exists() and assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
