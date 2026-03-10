@@ -277,11 +277,8 @@ class TestDeleteModel:
 
 
 class TestModelsStatus:
-    @patch("psutil.virtual_memory")
-    def test_response_shape(self, mock_vm, client, mm):
-        mem = Mock()
-        mem.total = 16 * (1024**3)
-        mock_vm.return_value = mem
+    @patch("app.api.routes.TOTAL_RAM_GB", 16.0)
+    def test_response_shape(self, client, mm):
         mm.model_id = "org/active"
 
         resp = client.get("/v1/models/status")
@@ -295,12 +292,9 @@ class TestModelsStatus:
         for key in ["id", "name", "size_gb", "feasible", "downloaded", "active", "requires_token"]:
             assert key in m, f"missing key: {key}"
 
-    @patch("psutil.virtual_memory")
+    @patch("app.api.routes.TOTAL_RAM_GB", 16.0)
     @patch("app.api.routes.fetch_hub_models")
-    def test_download_error_extracted(self, mock_hub, mock_vm, client, mm):
-        mem = Mock()
-        mem.total = 16 * (1024**3)
-        mock_vm.return_value = mem
+    def test_download_error_extracted(self, mock_hub, client, mm):
         mm.model_id = None
 
         from app.core.hub_fetcher import HubModel
