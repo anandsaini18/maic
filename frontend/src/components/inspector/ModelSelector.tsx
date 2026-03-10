@@ -99,7 +99,7 @@ export default function ModelSelector({
               placeholder="Search models..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="px-3 py-2 bg-warm-card border-b border-warm-border text-sm text-warm-text placeholder-warm-muted focus:outline-none"
+              className="w-full px-3 py-2.5 bg-warm-card border-b border-warm-border text-sm text-warm-text placeholder-warm-muted focus:outline-none focus:bg-warm-border/20 transition-colors duration-[250ms]"
             />
             <div className="max-h-[240px] overflow-y-auto">
               {filteredModels.length > 0 ? (
