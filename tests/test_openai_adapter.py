@@ -12,11 +12,11 @@ messages_to_dicts is trivial enough to skip — it's exercised by the route test
 """
 
 import json
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
-from app.adapters.openai_adapter import OpenAIAdapter
+from app.adapters.openai_adapter import OpenAIAdapter, _async_token_iter
 from app.core.token_stream import TokenStream
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -100,6 +100,66 @@ class TestStreamToSSE:
         assert stop["usage"]["completion_tokens"] == 0
 
 
+# ── _async_token_iter exception propagation ──────────────────────────────────
+
+
+class TestAsyncTokenIter:
+    """
+    Verifies that exceptions raised by the MLX token generator inside the
+    ThreadPoolExecutor thread are propagated to the async consumer rather
+    than being silently swallowed into the unawaited run_in_executor Future.
+
+    The old code did:
+        except Exception as exc:
+            queue.put_nowait(None)   # sends end-of-stream sentinel
+            raise exc                # ← went into unawaited Future, silently lost
+
+    The new code pushes the exception object itself into the queue so the
+    async side can re-raise it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_producer_exception_raises_on_consumer_side(self):
+        """RuntimeError mid-stream must surface to the caller, not be swallowed."""
+
+        def _failing_gen():
+            yield "Hello"
+            raise RuntimeError("MLX out of memory")
+
+        stream = TokenStream(_failing_gen())
+        with pytest.raises(RuntimeError, match="MLX out of memory"):
+            # Collect all items; exception should propagate during iteration.
+            [item async for item in _async_token_iter(stream)]
+
+    @pytest.mark.asyncio
+    async def test_producer_exception_propagates_through_stream_to_sse(self):
+        """Exception must bubble through stream_to_sse to the HTTP layer."""
+
+        def _failing_gen():
+            yield "partial"
+            raise ValueError("tokenizer exploded")
+
+        stream = TokenStream(_failing_gen())
+        with pytest.raises(ValueError, match="tokenizer exploded"):
+            [event async for event in OpenAIAdapter.stream_to_sse(stream, "m", "id-1")]
+
+    @pytest.mark.asyncio
+    async def test_clean_stream_unaffected_by_error_path(self):
+        """Regression: the else-branch sentinel must still work for normal streams."""
+        stream = TokenStream(iter(["x", "y"]))
+        items = [item async for item in _async_token_iter(stream)]
+        assert items == ["x", "y"]
+
+    @pytest.mark.asyncio
+    async def test_no_double_sentinel_on_clean_end(self):
+        """else-branch sends None exactly once; queue should drain to empty."""
+        stream = TokenStream(iter(["a"]))
+        items = [item async for item in _async_token_iter(stream)]
+        # If a double-None were pushed, a second None would be left in the queue.
+        # We verify the generator terminates cleanly with exactly the right items.
+        assert items == ["a"]
+
+
 # ── stream_to_response ───────────────────────────────────────────────────────
 
 
@@ -135,11 +195,13 @@ class TestStreamToResponse:
 
 
 class TestBuildSupportedModels:
-    @patch("app.adapters.openai_adapter.psutil")
-    def test_feasibility_uses_80_percent_rule(self, mock_psutil):
-        mem = Mock()
-        mem.total = 16 * (1024**3)  # 16 GB
-        mock_psutil.virtual_memory.return_value = mem
+    def setup_method(self) -> None:
+        from app.adapters import openai_adapter
+
+        openai_adapter._supported_models_cache = None
+
+    @patch("app.core.model_manager.TOTAL_RAM_GB", 16.0)
+    def test_feasibility_uses_80_percent_rule(self):
 
         result = OpenAIAdapter.build_supported_models()
         assert result.available_ram_gb == 16.0
@@ -149,14 +211,10 @@ class TestBuildSupportedModels:
             assert model.feasible == (model.size_gb <= safe)
             assert model.min_ram_gb == round(model.size_gb / 0.8, 1)
 
-    @patch("app.adapters.openai_adapter.psutil")
-    def test_requires_token_propagated(self, mock_psutil):
-        from app.core.model_manager import TOKEN_REQUIRED_MODELS
-
-        mem = Mock()
-        mem.total = 128 * (1024**3)
-        mock_psutil.virtual_memory.return_value = mem
+    @patch("app.core.model_manager.TOTAL_RAM_GB", 128.0)
+    def test_requires_token_propagated(self):
+        from app.core.model_sizing import GATED_MODELS
 
         result = OpenAIAdapter.build_supported_models()
         for model in result.models:
-            assert model.requires_token == (model.id in TOKEN_REQUIRED_MODELS)
+            assert model.requires_token == (model.id in GATED_MODELS)

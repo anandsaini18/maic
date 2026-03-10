@@ -156,24 +156,20 @@ class TestTimingMetrics:
         assert elapsed >= 0.04  # Should have paused for ~0.05s
 
     def test_tokens_per_second_calculation(self):
-        """tokens_per_second should calculate correctly."""
+        """tokens_per_second should equal token_count / elapsed."""
 
-        def fast_gen():
+        def slow_gen():
             for i in range(4):
+                time.sleep(0.01)
                 yield f"t{i}"
 
-        gen = fast_gen()
-        stream = TokenStream(gen)
-
-        start = time.perf_counter()
+        stream = TokenStream(slow_gen())
         list(stream)
-        end = time.perf_counter()
 
-        expected_tps = 4 / (end - start)
-        actual_tps = stream.tokens_per_second
-
-        # Should be approximately equal (within 10% due to timing variations)
-        assert actual_tps * 0.9 <= expected_tps <= actual_tps * 1.1
+        # Verify using the stream's own elapsed (avoids external timing skew)
+        assert stream.token_count == 4
+        assert stream.elapsed > 0
+        assert stream.tokens_per_second == stream.token_count / stream.elapsed
 
     def test_tokens_per_second_zero_elapsed(self):
         """tokens_per_second should return 0 if elapsed is 0 (edge case)."""

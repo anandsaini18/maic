@@ -1,5 +1,14 @@
+r"""Server configuration and generation strategy definitions.
+
+``Settings`` loads runtime config from environment variables / ``.env`` via
+Pydantic. ``GenerationStrategy`` defines the Protocol for swappable sampling
+strategies (``default_strategy``, ``greedy_strategy``), with LRU-cached sampler
+construction to avoid rebuilding on repeated requests.
+"""
+
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,6 +36,20 @@ class GenerationStrategy(Protocol):
     ) -> dict[str, Any]: ...
 
 
+@lru_cache(maxsize=16)
+def _cached_sampler(temp: float, top_p: float) -> Any:
+    """
+    Build and cache an mlx_lm sampler keyed on (temp, top_p).
+
+    Repeated requests with the same generation parameters (the common case)
+    reuse the cached sampler instead of rebuilding it from scratch each time.
+    Cache holds 16 distinct (temp, top_p) combinations before evicting the LRU.
+    """
+    from mlx_lm.sample_utils import make_sampler
+
+    return make_sampler(temp=temp, top_p=top_p)
+
+
 def default_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dict[str, Any]:
     """
     Standard sampling: pick tokens randomly weighted by probability.
@@ -35,11 +58,9 @@ def default_strategy(*, max_tokens: int, temperature: float, top_p: float) -> di
     'top_p' (nucleus sampling) cuts off the long tail of unlikely tokens before sampling.
     This is the strategy used for normal chat responses.
     """
-    from mlx_lm.sample_utils import make_sampler
-
     return {
         "max_tokens": max_tokens,
-        "sampler": make_sampler(temp=temperature, top_p=top_p),
+        "sampler": _cached_sampler(temperature, top_p),
     }
 
 
@@ -51,11 +72,9 @@ def greedy_strategy(*, max_tokens: int, temperature: float, top_p: float) -> dic
     Useful for testing or any task where you want reproducible results.
     The temperature and top_p arguments are ignored here.
     """
-    from mlx_lm.sample_utils import make_sampler
-
     return {
         "max_tokens": max_tokens,
-        "sampler": make_sampler(temp=0.0),
+        "sampler": _cached_sampler(0.0, 1.0),
     }
 
 
@@ -78,6 +97,8 @@ class Settings(BaseSettings):
     model_id: str = "mlx-community/Phi-3.5-mini-instruct-4bit"
     # Where downloaded weights live. Model 'org/name' is stored as '{models_dir}/org--name/'
     models_dir: str = "~/models"
+    # HuggingFace organization to browse for models (override via HUB_ORG env var)
+    hub_org: str = "mlx-community"
     host: str = "0.0.0.0"
     port: int = 8000
     max_tokens: int = 512

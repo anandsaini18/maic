@@ -1,7 +1,17 @@
+r"""MLX model lifecycle management — download, load, generate, and delete.
+
+Implements the Facade pattern: the rest of the app calls ``model_manager.load()``
+and ``model_manager.generate()`` without knowing about MLX internals, tokenizer
+chat templates, or stop-string detection. Also implements the Observer pattern
+for generation event broadcasting and provides TTL-cached disk queries for
+the UI polling endpoint.
+"""
+
 from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -9,9 +19,16 @@ from typing import Any, Protocol, runtime_checkable
 import psutil
 
 from app.core.config import GenerationStrategy, settings
+from app.core.model_sizing import KNOWN_SIZES, KNOWN_SIZES_BY_RAM
 from app.core.token_stream import TokenStream
 
 logger = logging.getLogger(__name__)
+
+# ── Cached total RAM (constant for the lifetime of the process) ───────────────
+# Used by hot paths (models_status polling, adapter feasibility checks) to avoid
+# repeated psutil.virtual_memory() calls. _check_ram() uses psutil directly so
+# tests can still control the value via mocking.
+TOTAL_RAM_GB: float = psutil.virtual_memory().total / (1024**3)
 
 
 def _model_local_path(model_id: str) -> Path:
@@ -63,44 +80,14 @@ def _ensure_model_downloaded(model_id: str, local_path: Path) -> None:
     logger.info("Download complete: %s", local_path)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Known model sizes (GiB) — used for RAM feasibility checks and UI suggestions
-# ─────────────────────────────────────────────────────────────────────────────
-
-KNOWN_MODEL_SIZES: dict[str, float] = {
-    # Open models (no token required)
-    "mlx-community/SmolLM2-1.7B-Instruct-4bit": 1.0,
-    "mlx-community/Phi-3.5-mini-instruct-4bit": 2.3,  # ← default
-    "mlx-community/Qwen3-4B-Instruct-2507-4bit": 2.5,
-    "mlx-community/gemma-3-4b-it-4bit": 2.6,
-    "mlx-community/Mistral-7B-Instruct-v0.3-4bit": 4.0,
-    "mlx-community/Qwen3-8B-4bit": 5.0,
-    # Gated models (Meta license — accept at hf.co/meta-llama first)
-    "mlx-community/Llama-3.2-1B-Instruct-4bit": 0.7,
-    "mlx-community/Llama-3.2-3B-Instruct-4bit": 1.8,
-    "mlx-community/Llama-3.1-8B-Instruct-4bit": 4.9,
-    "mlx-community/Llama-3.3-70B-Instruct-4bit": 40.0,
-    # Unfeasible on any MacBook (included for reference)
-    "mlx-community/Kimi-K2.5": 658.0,
-}
-
-# Models requiring HuggingFace authentication (gated behind license agreements)
-TOKEN_REQUIRED_MODELS: frozenset[str] = frozenset(
-    {
-        "mlx-community/Llama-3.2-1B-Instruct-4bit",
-        "mlx-community/Llama-3.2-3B-Instruct-4bit",
-        "mlx-community/Llama-3.1-8B-Instruct-4bit",
-        "mlx-community/Llama-3.3-70B-Instruct-4bit",
-    }
-)
-
-# Sorted by size for easy lookup by RAM tier
-FEASIBLE_BY_RAM: list[tuple[str, float]] = sorted(KNOWN_MODEL_SIZES.items(), key=lambda x: x[1])
-
 # Guard against pathological stop strings that can delay visible streaming.
 # Real EOS markers are short (< 20 chars), so 64 keeps correctness while
 # preventing whole-response buffering if a tokenizer emits a bad marker.
 MAX_STOP_LOOKBACK_CHARS = 64
+
+_DOWNLOAD_CACHE_TTL = 30.0  # seconds
+_DISK_SIZE_CACHE_TTL = 60.0  # seconds
+_LOCAL_IDS_CACHE_TTL = 15.0  # seconds (directory list changes less frequently)
 
 
 # ── Custom Exceptions ─────────────────────────────────────────────────────────
@@ -129,9 +116,17 @@ class InferenceObserver(Protocol):
     Register with: model_manager.register_observer(your_observer)
     """
 
-    def on_token(self, token: str) -> None: ...
-    def on_complete(self, stats: dict[str, Any]) -> None: ...
-    def on_error(self, error: Exception) -> None: ...
+    def on_token(self, token: str) -> None:
+        r"""Called each time a new token is generated."""
+        ...
+
+    def on_complete(self, stats: dict[str, Any]) -> None:
+        r"""Called when generation finishes with performance stats."""
+        ...
+
+    def on_error(self, error: Exception) -> None:
+        r"""Called when generation fails with the raised exception."""
+        ...
 
 
 class StatsObserver:
@@ -144,9 +139,10 @@ class StatsObserver:
     """
 
     def on_token(self, token: str) -> None:
-        pass  # no-op per token; stats aggregated at on_complete
+        r"""No-op — stats are aggregated at completion, not per token."""
 
     def on_complete(self, stats: dict[str, Any]) -> None:
+        r"""Log token count, elapsed time, and throughput at INFO level."""
         logger.info(
             "Inference complete — %d tokens in %.2fs (%.1f tok/s)",
             stats["token_count"],
@@ -155,6 +151,7 @@ class StatsObserver:
         )
 
     def on_error(self, error: Exception) -> None:
+        r"""Log the inference error at ERROR level."""
         logger.error("Inference error: %s", error)
 
 
@@ -180,6 +177,15 @@ class ModelManager:
         self._observers: list[InferenceObserver] = [StatsObserver()]
         # Populated after load() — text forms of all EOS tokens for stop-string detection
         self._stop_strings: frozenset[str] = frozenset()
+        # Cached module references set after load() — avoids re-importing on every generate()
+        self._mx: Any = None
+        self._mlx_lm: Any = None
+        # Per-instance TTL caches for is_downloaded / disk_size_gb / local_model_ids.
+        # Instance-level (not module-level) so tests that create fresh ModelManager()
+        # instances start with an empty cache and don't bleed state across test runs.
+        self._download_cache: dict[str, tuple[bool, float]] = {}
+        self._disk_size_cache: dict[str, tuple[float | None, float]] = {}
+        self._local_ids_cache: tuple[list[str], float] | None = None
 
     # ── Observer management ──────────────────────────────────────────────────
 
@@ -208,10 +214,15 @@ class ModelManager:
         """
         Fail early if model needs more than 80% of available RAM.
 
-        Looks up model size in KNOWN_MODEL_SIZES and suggests feasible alternatives.
-        Unknown models skip this check and let MLX fail later if needed.
+        Looks up model size in KNOWN_SIZES (model_sizing) and suggests feasible
+        alternatives. Unknown models skip this check and let MLX fail later if needed.
+
+        Reads psutil directly (not the cached constant) so that tests can patch
+        psutil.virtual_memory to simulate different RAM configurations. This is
+        acceptable because _check_ram is called only at model-load time, not on
+        every request, so the psutil call cost is negligible.
         """
-        required_gb = KNOWN_MODEL_SIZES.get(model_id)
+        required_gb = KNOWN_SIZES.get(model_id)
         if required_gb is None:
             return  # Model size unknown; let MLX attempt to load it
 
@@ -220,7 +231,9 @@ class ModelManager:
 
         if required_gb > safe_limit:
             feasible = [
-                f"  - {mid} (~{size:.1f} GB)" for mid, size in FEASIBLE_BY_RAM if size <= safe_limit
+                f"  - {mid} (~{size:.1f} GB)"
+                for mid, size in KNOWN_SIZES_BY_RAM
+                if size <= safe_limit
             ]
             feasible_str = "\n".join(feasible) if feasible else "  (none in known list)"
             raise ModelTooLargeError(
@@ -310,6 +323,9 @@ class ModelManager:
             self._model, self._tokenizer = result[0], result[1]
             self._model_id = model_id
             self._stop_strings = self._derive_stop_strings()
+            # Cache mlx_lm reference so generate() avoids re-importing on every call.
+            # mlx.core is cached lazily on the first generate() call (it's only needed there).
+            self._mlx_lm = mlx_lm
             logger.info(
                 "Model '%s' loaded. Stop strings: %s",
                 model_id,
@@ -321,6 +337,10 @@ class ModelManager:
                 f"Failed to load model '{model_id}'. "
                 f"The local files may be corrupted — try re-downloading the model."
             ) from exc
+
+        # Invalidate download/disk-size cache for this model after a successful load
+        self._download_cache.pop(model_id, None)
+        self._disk_size_cache.pop(model_id, None)
 
     @property
     def is_loaded(self) -> bool:
@@ -354,8 +374,19 @@ class ModelManager:
         The 'strategy' argument controls sampling (temperature, top_p, max_tokens).
         Pass default_strategy for normal use, greedy_strategy for deterministic output.
         """
-        import mlx.core as mx
-        import mlx_lm  # Lazy import
+        # Use cached module references set during load() — avoids sys.modules lookup per call.
+        # If _mlx_lm is None (e.g., in tests that set up mm internals without calling load()),
+        # fall back to a lazy import so sys.modules patches in tests still work correctly.
+        if self._mx is None:
+            import mlx.core as mx
+
+            self._mx = mx
+        mx = self._mx
+        if self._mlx_lm is None:
+            import mlx_lm
+
+            self._mlx_lm = mlx_lm
+        mlx_lm = self._mlx_lm
 
         # Apply chat template and tokenize messages in one step
         # Ensures special tokens are properly encoded for EOS detection
@@ -420,21 +451,40 @@ class ModelManager:
             ended_by_finish_reason = False
             use_token_decode_fallback = False
 
-            def _suffix_holdback_chars(text: str) -> int:
-                if not stop_strings or not text:
-                    return 0
+            def _scan_suffix(text: str) -> tuple[int, int | None]:
+                """
+                Scan accumulated text for both holdback chars and complete stop matches.
 
-                # Keep only the longest trailing substring that matches a prefix
-                # of any stop marker; emit everything else immediately.
+                Returns (holdback_chars, stop_position) where:
+                - holdback_chars: trailing chars that might be start of a stop string
+                - stop_position: position of rightmost complete stop string match, or None
+
+                This replaces two separate scans (_suffix_holdback_chars + Layer 3 rfind)
+                with a single pass over all stop strings.
+                """
+                if not stop_strings or not text:
+                    return 0, None
+
                 holdback = 0
+                stop_pos = None
+
                 for stop in stop_strings:
-                    prefix_cap = min(len(stop) - 1, max_suffix, len(text))
-                    for n in range(prefix_cap, 0, -1):
-                        if text.endswith(stop[:n]):
-                            if n > holdback:
-                                holdback = n
-                            break
-                return holdback
+                    # Check for complete stop string match
+                    idx = text.rfind(stop)
+                    if idx != -1:
+                        # Keep the rightmost (maximum) position among all stop strings
+                        if stop_pos is None or idx > stop_pos:
+                            stop_pos = idx
+                    else:
+                        # No complete match; check for partial prefix at end (holdback)
+                        prefix_cap = min(len(stop) - 1, max_suffix, len(text))
+                        for n in range(prefix_cap, 0, -1):
+                            if text.endswith(stop[:n]):
+                                if n > holdback:
+                                    holdback = n
+                                break
+
+                return holdback, stop_pos
 
             def _decode_token_piece(token_value: Any) -> str:
                 try:
@@ -485,10 +535,12 @@ class ModelManager:
                         ended_by_finish_reason = True
                         break
 
-                    # Layer 3: Stop string found in accumulated text
-                    positions = [suffix.rfind(s) for s in stop_strings if s in suffix]
-                    if positions:
-                        clean = suffix[: max(positions)]
+                    # Layer 3 + Normal flow: use single scan for both stop detection and holdback
+                    holdback, stop_pos = _scan_suffix(suffix)
+
+                    if stop_pos is not None:
+                        # Stop string found in accumulated text
+                        clean = suffix[:stop_pos]
                         if clean:
                             self._notify_token(clean)
                             yield clean
@@ -497,7 +549,6 @@ class ModelManager:
 
                     # Normal flow: emit everything except the tiny suffix that
                     # could still be the start of a future stop string.
-                    holdback = _suffix_holdback_chars(suffix)
                     safe = suffix[:-holdback] if holdback else suffix
                     if safe:
                         self._notify_token(safe)
@@ -514,35 +565,35 @@ class ModelManager:
                 self._notify_error(exc)
                 raise
 
-        stream = TokenStream(_observed())
+        # Pass on_complete callback directly into TokenStream so it fires reliably
+        # on StopIteration regardless of how the stream is consumed (for loop,
+        # collect(), next()). This replaces the previous instance-attribute
+        # monkey-patch which was silently ignored by Python's iterator protocol.
+        def _on_complete() -> None:
+            self._notify_complete(
+                {
+                    "token_count": stream.token_count,
+                    "elapsed": stream.elapsed,
+                    "tokens_per_second": stream.tokens_per_second,
+                }
+            )
 
-        # Intercept the final __next__ to fire on_complete with stats
-        # (Can't do this in _observed since it lacks access to TokenStream stats)
-        original_next = stream.__next__
-
-        def _completing_next() -> str:
-            try:
-                return original_next()
-            except StopIteration:
-                self._notify_complete(
-                    {
-                        "token_count": stream.token_count,
-                        "elapsed": stream.elapsed,
-                        "tokens_per_second": stream.tokens_per_second,
-                    }
-                )
-                raise
-
-        stream.__next__ = _completing_next  # type: ignore[method-assign]
+        stream = TokenStream(_observed(), on_complete=_on_complete)
         return stream
 
     # ── Model management (for UI) ────────────────────────────────────────────
 
     def is_downloaded(self, model_id: str) -> bool:
-        """Check if a model's weight files exist on disk."""
+        """Check if a model's weight files exist on disk. Result is TTL-cached."""
+        now = time.monotonic()
+        cached = self._download_cache.get(model_id)
+        if cached is not None and now < cached[1]:
+            return cached[0]
+
         local_path = _model_local_path(model_id)
-        weight_files = list(local_path.glob("*.safetensors")) + list(local_path.glob("*.npz"))
-        return bool(weight_files)
+        result = bool(list(local_path.glob("*.safetensors")) + list(local_path.glob("*.npz")))
+        self._download_cache[model_id] = (result, now + _DOWNLOAD_CACHE_TTL)
+        return result
 
     def delete_model(self, model_id: str) -> None:
         """
@@ -556,20 +607,58 @@ class ModelManager:
 
             shutil.rmtree(local_path)
             logger.info("Deleted model weights at '%s'", local_path)
+        self._download_cache.pop(model_id, None)
+        self._disk_size_cache.pop(model_id, None)
+        self._local_ids_cache = None  # Invalidate directory listing cache
 
     def download_model(self, model_id: str) -> None:
         """Download a model's weights without loading them into memory."""
         self._check_ram(model_id)
         local_path = _model_local_path(model_id)
         _ensure_model_downloaded(model_id, local_path)
+        self._download_cache.pop(model_id, None)
+        self._disk_size_cache.pop(model_id, None)
+        self._local_ids_cache = None  # Invalidate directory listing cache
 
     def disk_size_gb(self, model_id: str) -> float | None:
         """Return disk size in GB of a downloaded model, or None if not cached."""
+        now = time.monotonic()
+        cached = self._disk_size_cache.get(model_id)
+        if cached is not None and now < cached[1]:
+            return cached[0]
+
         local_path = _model_local_path(model_id)
         if not local_path.exists():
-            return None
-        total = sum(f.stat().st_size for f in local_path.rglob("*") if f.is_file())
-        return round(total / (1024**3), 2)
+            result = None
+        else:
+            total = sum(f.stat().st_size for f in local_path.rglob("*") if f.is_file())
+            result = round(total / (1024**3), 2)
+
+        self._disk_size_cache[model_id] = (result, now + _DISK_SIZE_CACHE_TTL)
+        return result
+
+    def local_model_ids(self) -> list[str]:
+        """Scan the models directory and return IDs of all locally downloaded models. Result is TTL-cached."""
+        now = time.monotonic()
+        if self._local_ids_cache is not None and now < self._local_ids_cache[1]:
+            return self._local_ids_cache[0]
+
+        models_dir = Path(settings.models_dir).expanduser().resolve()
+        result: list[str] = []
+        if not models_dir.exists():
+            pass
+        else:
+            for entry in models_dir.iterdir():
+                if not entry.is_dir() or entry.name.startswith("."):
+                    continue
+                # Convert folder name back to HF model ID (org--name -> org/name)
+                model_id = entry.name.replace("--", "/", 1)
+                # Verify it actually has weight files
+                if list(entry.glob("*.safetensors")) or list(entry.glob("*.npz")):
+                    result.append(model_id)
+
+        self._local_ids_cache = (result, now + _LOCAL_IDS_CACHE_TTL)
+        return result
 
 
 # Module-level singleton instance used throughout the app

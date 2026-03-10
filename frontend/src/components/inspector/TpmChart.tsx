@@ -33,10 +33,10 @@ export default function TpmChart({ points }: Props) {
   return (
     <div className="px-5 py-4 border-b border-warm-border">
       <div className="flex items-baseline justify-between mb-2">
-        <span className="font-display text-[10px] font-medium uppercase tracking-[1.5px] text-warm-muted">
+        <span className="font-display text-[11px] font-medium uppercase tracking-[1.5px] text-warm-muted">
           Throughput
         </span>
-        <span className="font-display text-[11px] text-amber tabular-nums">
+        <span className="font-display text-[12px] text-amber tabular-nums">
           {latest > 0 ? `${latest.toFixed(1)} tok/s` : "--"}
         </span>
       </div>

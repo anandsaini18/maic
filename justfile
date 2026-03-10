@@ -66,9 +66,9 @@ test *ARGS:
 [group: 'quality']
 lint:
     @echo "→ Linting Python (ruff)..."
-    {{VENV}}/ruff check src/ tests/
+    {{VENV}}/ruff check app/ tests/
     @echo "→ Type-checking Python (mypy)..."
-    {{VENV}}/mypy src/
+    {{VENV}}/mypy app/
     @echo "→ Linting frontend (ESLint + tsc)..."
     cd frontend && npm run lint
     @echo "✓ All lint checks passed"
@@ -77,8 +77,8 @@ lint:
 [group: 'quality']
 fmt:
     @echo "→ Formatting Python..."
-    {{VENV}}/ruff check --fix src/ tests/
-    {{VENV}}/black src/ tests/
+    {{VENV}}/ruff check --fix app/ tests/
+    {{VENV}}/black app/ tests/
     @echo "✓ Done"
 
 # ── CI ────────────────────────────────────────────────────────────────────────

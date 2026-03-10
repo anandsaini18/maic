@@ -20,15 +20,15 @@ export default function SliderGroup({
   return (
     <div className="mb-4 last:mb-0">
       <div className="flex justify-between items-center mb-1.5">
-        <span className="font-display text-[11px] text-warm-text">
+        <span className="font-display text-[12px] text-warm-text">
           {label}
         </span>
-        <span className="font-display text-[11px] text-amber bg-amber-dim px-1.5 py-px rounded min-w-[36px] text-center">
+        <span className="font-display text-[12px] text-amber bg-amber-dim px-1.5 py-px rounded min-w-[36px] text-center">
           {value}
         </span>
       </div>
       {description && (
-        <p className="font-display text-[9px] text-warm-muted mb-2 leading-relaxed">
+        <p className="font-display text-[10px] text-warm-muted mb-2 leading-relaxed">
           {description}
         </p>
       )}

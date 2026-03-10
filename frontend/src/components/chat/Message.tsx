@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 
 import type { UIMessage } from "../../api/types";
 import { addCopyButtons, highlightCodeBlocks } from "../../lib/markdown";
@@ -8,7 +8,7 @@ interface Props {
   message: UIMessage;
 }
 
-export default function Message({ message: m }: Props) {
+function Message({ message: m }: Props) {
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -22,10 +22,10 @@ export default function Message({ message: m }: Props) {
 
   if (isUser) {
     return (
-      <div className="flex justify-end opacity-0 animate-msg-slide py-3">
+      <div className="flex justify-end animate-msg-slide py-3">
         <div className="max-w-[80%] md:max-w-[65%]">
           <div className="bg-warm-card border border-warm-border rounded-sm rounded-br-xs px-4 py-3">
-            <div className="text-sm leading-relaxed text-warm-text font-body whitespace-pre-wrap break-words">
+            <div className="text-xs leading-relaxed text-warm-text font-body whitespace-pre-wrap break-words">
               {m.content}
             </div>
           </div>
@@ -35,7 +35,7 @@ export default function Message({ message: m }: Props) {
   }
 
   return (
-    <div className="opacity-0 animate-msg-slide py-3">
+    <div className="animate-msg-slide py-3">
       <div className="max-w-[90%] md:max-w-[75%]">
         {/* Role label */}
         <div className="flex items-center gap-2 mb-2">
@@ -76,3 +76,5 @@ export default function Message({ message: m }: Props) {
     </div>
   );
 }
+
+export default memo(Message);
