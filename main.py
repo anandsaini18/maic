@@ -94,7 +94,7 @@ def _debug_log_frontend(static_dir: Path, index_exists: bool, assets_exists: boo
     """Append a single NDJSON debug line about frontend static discovery."""
     try:
         import json
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         log_path = Path(".cursor/debug-a8dd61.log")
         payload = {
@@ -107,7 +107,7 @@ def _debug_log_frontend(static_dir: Path, index_exists: bool, assets_exists: boo
                 "static_dir": str(static_dir),
                 "index_exists": index_exists,
                 "assets_exists": assets_exists,
-                "timestamp_iso": datetime.utcnow().isoformat(),
+                "timestamp_iso": datetime.now(timezone.utc).isoformat(),
             },
         }
         with log_path.open("a", encoding="utf-8") as f:

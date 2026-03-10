@@ -43,7 +43,8 @@ export default function ModelSelector({
     if (open) {
       searchInputRef.current?.focus();
     } else {
-      setSearch("");
+      const id = setTimeout(() => setSearch(""), 0);
+      return () => clearTimeout(id);
     }
   }, [open]);
 
