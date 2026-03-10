@@ -25,7 +25,7 @@ function Message({ message: m }: Props) {
       <div className="flex justify-end animate-msg-slide py-3">
         <div className="max-w-[80%] md:max-w-[65%]">
           <div className="bg-warm-card border border-warm-border rounded-sm rounded-br-xs px-4 py-3">
-            <div className="text-sm leading-relaxed text-warm-text font-body whitespace-pre-wrap break-words">
+            <div className="text-xs leading-relaxed text-warm-text font-body whitespace-pre-wrap break-words">
               {m.content}
             </div>
           </div>
