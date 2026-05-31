@@ -9,7 +9,7 @@ removes Optional, these break before the bug reaches a client.
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.openai import (
+from maic.schemas.openai import (
     ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -21,13 +21,9 @@ from app.schemas.openai import (
 
 class TestMessage:
     def test_valid_roles(self):
-        for role in ("system", "user", "assistant"):
+        for role in ("system", "user", "assistant", "tool"):
             m = Message(role=role, content="hi")
             assert m.role == role
-
-    def test_invalid_role_rejected(self):
-        with pytest.raises(ValidationError):
-            Message(role="tool", content="hi")
 
     def test_invalid_role_human_rejected(self):
         with pytest.raises(ValidationError):

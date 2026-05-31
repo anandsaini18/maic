@@ -16,7 +16,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, cast
 
-from app.core.model_sizing import GATED_MODELS, resolve_size_gb
+from maic.core.model_sizing import GATED_MODELS, resolve_size_gb
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +192,7 @@ def _get_cache() -> HubModelCache:
     """
     global _hub_cache
     if _hub_cache is None:
-        from app.core.config import settings
+        from maic.core.config import settings
 
         _hub_cache = HubModelCache(org=settings.hub_org)
     return _hub_cache

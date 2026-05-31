@@ -9,6 +9,7 @@ interface Props {
   onLoad: (id: string) => void;
   onDownload: (id: string) => void;
   onDelete: (id: string) => void;
+  onQuantize: (id: string, qBits?: number) => void;
 }
 
 /** Looks like a HuggingFace model ID: "org/model-name" */
@@ -20,6 +21,7 @@ export default function ModelSelector({
   onLoad,
   onDownload,
   onDelete,
+  onQuantize,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -146,6 +148,7 @@ export default function ModelSelector({
                   onLoad={onLoad}
                   onDownload={onDownload}
                   onDelete={onDelete}
+                  onQuantize={onQuantize}
                   onClose={() => setOpen(false)}
                 />
               ))}

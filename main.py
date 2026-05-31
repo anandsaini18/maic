@@ -15,9 +15,9 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 
-from app.api.routes import router
-from app.core.config import settings
-from app.core.model_manager import ModelLoadError, ModelTooLargeError, model_manager
+from maic.api.routes import router
+from maic.core.config import settings
+from maic.core.model_manager import ModelLoadError, ModelTooLargeError, model_manager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -203,7 +203,7 @@ def main() -> None:
     # ModelTooLargeError is caught here so we exit cleanly with a friendly
     # message, never entering uvicorn's lifespan machinery.
     try:
-        from app.core.model_manager import ModelManager
+        from maic.core.model_manager import ModelManager
         ModelManager()._check_ram(model_id)
     except ModelTooLargeError as exc:
         print(str(exc), file=sys.stderr)

@@ -27,7 +27,8 @@ dependencies = [
     "pydantic-settings>=2.3.0",
     "psutil>=6.0.0",
     "huggingface_hub>=0.23.0",
-    "hf-transfer>=0.1.8",
+    "typer[rich]>=0.12.0",
+    "questionary>=2.0.0",
 ]
 
 [project.urls]
@@ -39,6 +40,8 @@ Changelog = "https://github.com/anandsaini18/maic/blob/main/CHANGELOG.md"
 [project.optional-dependencies]
 mlx = [
     "mlx-lm>=0.21.0",
+    "mlx-openai-server>=1.8.1",
+    "hf-transfer>=0.1.8",
 ]
 dev = [
     "pytest>=7.4.0",
@@ -61,10 +64,10 @@ build-backend = "setuptools.build_meta"
 py-modules = ["main"]
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["maic*"]
 
 [project.scripts]
-maic = "main:main"
+maic = "maic.cli:app"
 
 # ── pytest ───────────────────────────────────────────────────────────────────
 
@@ -76,7 +79,7 @@ addopts = [
     "-v",
     "--strict-markers",
     "--tb=short",
-    "--cov=app",
+    "--cov=maic",
     "--cov-report=term-missing",
     "--cov-report=html",
 ]
@@ -113,7 +116,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+known-first-party = ["maic"]
 
 # ── black ────────────────────────────────────────────────────────────────────
 

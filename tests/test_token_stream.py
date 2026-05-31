@@ -5,7 +5,7 @@ from collections.abc import Generator
 
 import pytest
 
-from app.core.token_stream import TokenStream
+from maic.core.token_stream import TokenStream
 
 
 class TestTokenStreamIterator:

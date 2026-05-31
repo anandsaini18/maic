@@ -23,6 +23,9 @@ export default function App() {
     maxTokens: 512,
     stream: true,
     systemPrompt: false,
+    maxKvSize: 0,
+    kvBits: 0,
+    batchMode: false,
   });
 
   const [tpmHistory, setTpmHistory] = useState<TpmPoint[]>([]);
@@ -37,7 +40,7 @@ export default function App() {
     onTpmPoint: addTpmPoint,
   });
 
-  const { models, activeModel, ramGb, download, load, remove } = useModels({
+  const { models, activeModel, ramGb, download, load, remove, quantize } = useModels({
     showToast,
     clearConversation,
   });
@@ -69,6 +72,7 @@ export default function App() {
         onLoad={load}
         onDownload={download}
         onDelete={remove}
+        onQuantize={quantize}
         isOpen={inspectorOpen}
         tpmHistory={tpmHistory}
       />

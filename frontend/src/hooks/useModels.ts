@@ -86,5 +86,18 @@ export function useModels({ showToast, clearConversation }: UseModelsOpts) {
     [showToast, refresh],
   );
 
-  return { models, activeModel, ramGb, download, load, remove } as const;
+  const quantize = useCallback(
+    async (modelId: string, qBits = 4) => {
+      showToast(`Quantizing ${modelId.split("/").pop()} to ${qBits}-bit...`);
+      try {
+        await api.quantizeModel(modelId, { q_bits: qBits });
+      } catch (e: unknown) {
+        showToast(`Quantize failed: ${(e as Error).message}`, "error");
+      }
+      refresh();
+    },
+    [showToast, refresh],
+  );
+
+  return { models, activeModel, ramGb, download, load, remove, quantize } as const;
 }

@@ -15,6 +15,7 @@ interface Props {
   onLoad: (id: string) => void;
   onDownload: (id: string) => void;
   onDelete: (id: string) => void;
+  onQuantize: (id: string, qBits?: number) => void;
   isOpen: boolean;
   tpmHistory: TpmPoint[];
 }
@@ -29,6 +30,7 @@ export default function InspectorPanel({
   onLoad,
   onDownload,
   onDelete,
+  onQuantize,
   isOpen,
   tpmHistory,
 }: Props) {
@@ -46,6 +48,7 @@ export default function InspectorPanel({
           onLoad={onLoad}
           onDownload={onDownload}
           onDelete={onDelete}
+          onQuantize={onQuantize}
         />
 
         <TpmChart points={tpmHistory} />

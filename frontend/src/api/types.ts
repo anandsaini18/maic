@@ -1,5 +1,9 @@
 /* Shared types used across hooks and components. */
 
+export interface ModelCapabilities {
+  tool_calling?: boolean;
+}
+
 export interface Model {
   id: string;
   name: string;
@@ -11,6 +15,9 @@ export interface Model {
   requires_token: boolean;
   downloading: boolean;
   download_error: string | null;
+  quantizing: boolean;
+  quantization_info: string | null;
+  tool_calling?: boolean | null;
 }
 
 export interface ModelsStatus {
@@ -28,6 +35,9 @@ export interface GenerationSettings {
   maxTokens: number;
   stream: boolean;
   systemPrompt: boolean;
+  maxKvSize: number;
+  kvBits: number;
+  batchMode: boolean;
 }
 
 export interface UIMessage {
