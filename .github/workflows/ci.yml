@@ -1,0 +1,183 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, "feature/**"]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ── Backend Lint ───────────────────────────────────────────────────────────
+  # Runs ruff, black --check, and mypy across the Python version matrix.
+  # Separate from tests so lint failures surface immediately.
+  backend-lint:
+    name: "Backend Lint (Python ${{ matrix.python-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run ruff
+        run: ruff check app/ tests/
+
+      - name: Run black (format check)
+        run: black --check app/ tests/
+
+      - name: Run mypy
+        run: mypy app/
+
+  # ── Backend Tests ──────────────────────────────────────────────────────────
+  # Runs pytest with coverage. MLX is fully mocked so ubuntu runners work.
+  backend-test:
+    name: "Backend Tests (Python ${{ matrix.python-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests with coverage
+        run: pytest --cov-report=xml
+
+      - name: Upload HTML coverage report
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-html
+          path: htmlcov/
+          retention-days: 7
+
+      - name: Upload XML coverage report
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-xml
+          path: coverage.xml
+          retention-days: 7
+
+  # ── Coverage Comment ───────────────────────────────────────────────────────
+  # Posts a coverage summary as a PR comment (PRs only).
+  coverage-comment:
+    name: "Coverage Comment"
+    runs-on: ubuntu-latest
+    needs: backend-test
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download XML coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report-xml
+
+      - name: Post coverage comment
+        uses: MishaKav/pytest-coverage-comment@main
+        with:
+          pytest-xml-coverage-path: ./coverage.xml
+          title: "Test Coverage Report"
+          badge-title: "Coverage"
+          hide-badge: false
+          hide-report: false
+          create-new-comment: false
+          hide-comment: false
+          report-only-changed-files: true
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  # Runs ESLint and full production build (tsc + Vite).
+  frontend:
+    name: "Frontend (Lint + Build)"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build frontend (TypeScript + Vite)
+        working-directory: frontend
+        run: npm run build
+
+      - name: Upload static build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-static-build
+          path: static/
+          retention-days: 7
+
+  # ── CI Gate ────────────────────────────────────────────────────────────────
+  # Single required status check for branch protection.
+  # Points here instead of individual matrix jobs so the rule survives
+  # matrix changes (e.g. adding Python 3.13).
+  ci-gate:
+    name: "CI Gate"
+    runs-on: ubuntu-latest
+    needs: [backend-lint, backend-test, frontend]
+    if: always()
+
+    steps:
+      - name: Verify all jobs passed
+        if: >-
+          needs.backend-lint.result != 'success' ||
+          needs.backend-test.result != 'success' ||
+          needs.frontend.result != 'success'
+        run: |
+          echo "One or more CI jobs failed."
+          echo "backend-lint:  ${{ needs.backend-lint.result }}"
+          echo "backend-test:  ${{ needs.backend-test.result }}"
+          echo "frontend:      ${{ needs.frontend.result }}"
+          exit 1
+
+      - name: All checks passed
+        run: echo "All CI checks passed."

@@ -1,0 +1,73 @@
+# Path-to-label mapping for actions/labeler@v5
+# Docs: https://github.com/actions/labeler
+
+# ── Area labels ──────────────────────────────────────────────────────────────
+
+"area: backend":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "app/**"
+      - "main.py"
+      - "pyproject.toml"
+
+"area: frontend":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "frontend/**"
+      - "static/**"
+
+"area: tests":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "tests/**"
+      - "pyproject.toml"
+
+"area: docs":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "*.md"
+      - "docs/**"
+
+"area: ci":
+  - changed-files:
+    - any-glob-to-any-file:
+      - ".github/**"
+
+"area: config":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "*.ini"
+      - "*.cfg"
+      - "*.toml"
+      - "frontend/tsconfig*.json"
+      - "frontend/vite.config.ts"
+      - "frontend/eslint.config.js"
+      - "frontend/tailwind.config.ts"
+      - "frontend/postcss.config.js"
+
+# ── Type labels ──────────────────────────────────────────────────────────────
+
+"type: api":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "app/api/**"
+      - "app/adapters/**"
+      - "app/schemas/**"
+
+"type: core":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "app/core/**"
+
+"type: ui-components":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "frontend/src/components/**"
+      - "frontend/src/hooks/**"
+
+"type: dependencies":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "pyproject.toml"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"

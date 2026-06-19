@@ -35,10 +35,11 @@ def mock_mlx_response():
 @pytest.fixture
 def simple_token_generator():
     """Simple generator of test tokens."""
+
     def gen():
         tokens = ["Hello", " ", "world", "!"]
-        for token in tokens:
-            yield token
+        yield from tokens
+
     return gen()
 
 

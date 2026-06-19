@@ -1,0 +1,77 @@
+version: 2
+
+updates:
+  # ── Python (pip) ───────────────────────────────────────────────────────────
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    labels:
+      - "type: dependencies"
+      - "area: backend"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      python-patch-updates:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+    ignore:
+      # mlx-lm minor/major bumps can break the API — require manual review
+      - dependency-name: mlx-lm
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  # ── npm (frontend) ─────────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    labels:
+      - "type: dependencies"
+      - "area: frontend"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      npm-dev-patch-updates:
+        dependency-type: development
+        update-types:
+          - patch
+      npm-dev-minor-updates:
+        dependency-type: development
+        update-types:
+          - minor
+    ignore:
+      - dependency-name: vite
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+
+  # ── GitHub Actions ─────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    labels:
+      - "type: dependencies"
+      - "area: ci"
+    commit-message:
+      prefix: "chore(actions)"
+    groups:
+      actions-updates:
+        patterns:
+          - "*"

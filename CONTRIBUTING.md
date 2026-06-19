@@ -14,36 +14,55 @@ This project adheres to the Contributor Covenant Code of Conduct. By participati
    git clone https://github.com/yourusername/maic.git
    cd maic
    ```
-3. **Create a virtual environment:**
+3. **Install everything** (Python venv + MLX + frontend) in one step:
    ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
+   just setup
    ```
-4. **Install frontend dependencies:**
-   ```bash
-   cd frontend
-   npm install
-   cd ..
-   ```
+   Requires Python 3.10+, Node.js 22+, and [`just`](https://github.com/casey/just) (`brew install just`).
 
 ## Development Workflow
 
 ### Backend Development
-- Make changes to files in `/app` or `main.py`
-- Run the server: `python main.py`
-- The server runs on `http://localhost:8000`
-- Check logs for errors
+- Make changes in `app/` or `main.py`
+- Run backend: `just dev`
+- Default server URL: `http://localhost:8000`
+- Run with a specific model:
+  ```bash
+  just dev --model mlx-community/Llama-3.2-1B-Instruct-4bit
+  ```
 
 ### Frontend Development
-- Make changes to files in `/frontend/src`
-- Run dev server: `cd frontend && npm run dev`
-- The frontend auto-reloads on save
-- Check browser console (F12) for errors
+- Make changes in `frontend/src/`
+- Run frontend dev server:
+  ```bash
+  just dev-frontend
+  ```
+- Build frontend for production:
+  ```bash
+  just build
+  ```
+- Run backend + built frontend together:
+  ```bash
+  just run
+  ```
 
 ### Testing
-- Review `TEST_UI_FLOW.md` for manual testing checklist
-- Run through the test cases before submitting PRs
+- Run backend tests:
+  ```bash
+  just test
+  ```
+- Run all lint checks:
+  ```bash
+  just lint
+  ```
+- Run full local CI equivalent:
+  ```bash
+  just ci
+  ```
+- For frontend-only work, also run:
+  ```bash
+  cd frontend && npm run lint && npm run build
+  ```
 
 ## Submitting Changes
 
@@ -51,7 +70,7 @@ This project adheres to the Contributor Covenant Code of Conduct. By participati
 1. Ensure your code follows the existing style
 2. Test your changes thoroughly
 3. Add comments for complex logic
-4. Update documentation if needed
+4. Update documentation if behavior changes (`README.md`, `CHANGELOG.md`, and/or `docs/CURRENT/*`)
 
 ### Commit Messages
 Write clear, concise commit messages:
@@ -89,23 +108,35 @@ Examples:
    - Summary of changes
    - Testing notes
 
-4. **Code Review:** Maintainers will review and request changes if needed
+4. **Code Review:** Maintainers will review and request changes if needed.
+5. Ensure required checks pass in GitHub Actions (CI gate).
 
-5. **Merge:** Once approved, your PR will be merged!
+### Release Notes
+
+- Maic is currently on the `1.0.x` line.
+- Production release publishing is automated:
+  - Merge to `main` triggers the release workflow.
+  - Version is read from `pyproject.toml`.
+  - A matching `vX.Y.Z` tag and GitHub Release are created.
+  - Python artifacts are published to PyPI.
+- If your PR changes user-facing behavior, include a `CHANGELOG.md` update in the same PR.
 
 ## Coding Standards
 
 ### Python
-- Follow PEP 8 style guide
-- Use type hints where possible
-- Keep functions focused and well-documented
-- Use docstrings for modules, classes, and functions
+- Use type hints (project runs mypy in strict mode).
+- Keep route handlers thin; business logic belongs in `app/core`.
+- Keep OpenAI response shaping in `app/adapters`.
+- Use docstrings for modules, classes, and non-trivial functions.
 
 ### TypeScript/JavaScript
-- Use ESLint configuration: `cd frontend && npm run lint`
-- Use TypeScript for type safety
-- Keep components focused and reusable
-- Use descriptive names for variables and functions
+- Run frontend lint/build before PR:
+  ```bash
+  cd frontend && npm run lint && npm run build
+  ```
+- Keep API calls in `frontend/src/api/client.ts`.
+- Keep shared API types in `frontend/src/api/types.ts`.
+- Keep business/state logic in hooks; keep components mostly presentational.
 
 ### General
 - Write readable code, not clever code
@@ -136,7 +167,7 @@ Before creating an issue, check if it already exists. When reporting:
 - Update README.md for user-facing changes
 - Update CHANGELOG.md following the format
 - Add docstrings to new functions/classes
-- Keep file organization clear
+- Keep `docs/CURRENT/*` aligned with the current implementation reality
 
 ## Questions?
 
