@@ -27,7 +27,7 @@ dependencies = [
     "pydantic-settings>=2.3.0",
     "psutil>=6.0.0",
     "huggingface_hub>=0.23.0",
-    "hf-transfer>=0.1.8",
+    "hf-transfer>=0.1.9",
 ]
 
 [project.urls]
