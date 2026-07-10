@@ -15,19 +15,21 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.routes import _downloads, router
-from app.core.model_manager import ModelLoadError, ModelTooLargeError
-from app.core.token_stream import TokenStream
+from maic.api.routes import _downloads, _quantizations, router
+from maic.core.model_manager import ModelLoadError, ModelTooLargeError
+from maic.core.token_stream import TokenStream
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
 
 
 @pytest.fixture(autouse=True)
 def _clean_download_state():
-    """Reset download tracker state between tests."""
+    """Reset download/quantization tracker state between tests."""
     _downloads._state.clear()
+    _quantizations._state.clear()
     yield
     _downloads._state.clear()
+    _quantizations._state.clear()
 
 
 @pytest.fixture
@@ -38,6 +40,10 @@ def mm():
     m.model_id = "test/model"
     m.is_downloaded.return_value = False
     m.local_model_ids.return_value = []  # Required for models_status endpoint
+    m.supports_tool_calling = False
+    from maic.core.model_manager import ToolCallFormat
+
+    m.tool_call_format_for.return_value = ToolCallFormat.NONE
     return m
 
 
@@ -50,8 +56,8 @@ def client(mm):
     # model_manager is imported lazily inside require_model's wrapper,
     # so we must patch it at the source module, not at decorators module level.
     with (
-        patch("app.api.routes.model_manager", mm),
-        patch("app.core.model_manager.model_manager", mm),
+        patch("maic.api.routes.model_manager", mm),
+        patch("maic.core.model_manager.model_manager", mm),
     ):
         yield TestClient(app)
 
@@ -69,7 +75,11 @@ def _chat_body(**overrides) -> dict:
 
 
 class TestChatCompletions:
-    """POST /v1/chat/completions — the most critical endpoint."""
+    """POST /v1/chat/completions — the most critical endpoint.
+
+    All tests run with batch_mode=False (default), exercising the
+    single-inference semaphore path.
+    """
 
     def _with_stream(self, mm, tokens: list[str]):
         mm.generate.return_value = TokenStream(iter(tokens))
@@ -78,7 +88,7 @@ class TestChatCompletions:
         self._with_stream(mm, ["Hello", " world"])
 
         with patch(
-            "app.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
+            "maic.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
         ):
             resp = client.post("/v1/chat/completions", json=_chat_body())
 
@@ -96,7 +106,7 @@ class TestChatCompletions:
         self._with_stream(mm, ["Hi"])
 
         with patch(
-            "app.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
+            "maic.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
         ):
             resp = client.post("/v1/chat/completions", json=_chat_body(stream=True))
 
@@ -130,8 +140,8 @@ class TestChatCompletions:
         app.include_router(router)
 
         with (
-            patch("app.api.routes.model_manager", mm),
-            patch("app.core.model_manager.model_manager", mm),
+            patch("maic.api.routes.model_manager", mm),
+            patch("maic.core.model_manager.model_manager", mm),
         ):
             resp = TestClient(app).post("/v1/chat/completions", json=_chat_body())
 
@@ -152,7 +162,7 @@ class TestChatCompletions:
 
         mm.generate.side_effect = fake_generate
 
-        with patch("app.api.routes.default_strategy", side_effect=spy):
+        with patch("maic.api.routes.default_strategy", side_effect=spy):
             client.post("/v1/chat/completions", json=_chat_body(temperature=0.0, top_p=0.0))
 
         assert captured["temperature"] == 0.0
@@ -171,7 +181,7 @@ class TestChatCompletions:
 
         mm.generate.side_effect = fake_generate
 
-        with patch("app.api.routes.default_strategy", side_effect=spy):
+        with patch("maic.api.routes.default_strategy", side_effect=spy):
             client.post("/v1/chat/completions", json=_chat_body(max_tokens=42))
 
         assert captured["max_tokens"] == 42
@@ -180,15 +190,95 @@ class TestChatCompletions:
         self._with_stream(mm, ["a", "b", "c"])
 
         with patch(
-            "app.api.routes.default_strategy", return_value={"max_tokens": 3, "sampler": None}
+            "maic.api.routes.default_strategy", return_value={"max_tokens": 3, "sampler": None}
         ):
             resp = client.post("/v1/chat/completions", json=_chat_body(max_tokens=3))
 
         assert resp.json()["choices"][0]["finish_reason"] == "length"
 
     def test_invalid_role_returns_422(self, client):
-        body = {"model": "m", "messages": [{"role": "tool", "content": "x"}]}
+        body = {"model": "m", "messages": [{"role": "robot", "content": "x"}]}
         assert client.post("/v1/chat/completions", json=body).status_code == 422
+
+    def test_tools_request_returns_tool_calls(self, client, mm):
+        tool_output = (
+            '<tool_call>\n{"name": "get_weather", "arguments": {"city": "Paris"}}\n</tool_call>'
+        )
+        mm.generate.return_value = TokenStream(iter([tool_output]))
+        body = _chat_body(
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "description": "Get weather for a city",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"city": {"type": "string"}},
+                        },
+                    },
+                }
+            ]
+        )
+
+        with patch(
+            "maic.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
+        ):
+            resp = client.post("/v1/chat/completions", json=body)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["choices"][0]["finish_reason"] == "tool_calls"
+        calls = data["choices"][0]["message"]["tool_calls"]
+        assert len(calls) == 1
+        assert calls[0]["function"]["name"] == "get_weather"
+        assert json.loads(calls[0]["function"]["arguments"]) == {"city": "Paris"}
+        # tools were forwarded to the model's chat template
+        assert mm.generate.call_args.kwargs.get("tools") is not None
+
+    def test_tools_streaming_emits_tool_call_chunk(self, client, mm):
+        tool_output = '<tool_call>\n{"name": "ls", "arguments": {"path": "."}}\n</tool_call>'
+        mm.generate.return_value = TokenStream(iter([tool_output]))
+        body = _chat_body(stream=True, tools=[{"type": "function", "function": {"name": "ls"}}])
+
+        with patch(
+            "maic.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
+        ):
+            resp = client.post("/v1/chat/completions", json=body)
+
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers["content-type"]
+        events = [
+            json.loads(line.removeprefix("data: "))
+            for line in resp.text.strip().split("\n\n")
+            if line.startswith("data:") and line != "data: [DONE]"
+        ]
+        assert events[-1]["choices"][0]["finish_reason"] == "tool_calls"
+        names = [
+            tc["function"]["name"]
+            for ev in events
+            for choice in ev["choices"]
+            if choice["delta"].get("tool_calls")
+            for tc in choice["delta"]["tool_calls"]
+        ]
+        assert "ls" in names
+
+    def test_tool_choice_none_skips_tools(self, client, mm):
+        mm.generate.return_value = TokenStream(iter(["plain answer"]))
+        body = _chat_body(
+            tool_choice="none",
+            tools=[{"type": "function", "function": {"name": "ls"}}],
+        )
+
+        with patch(
+            "maic.api.routes.default_strategy", return_value={"max_tokens": 512, "sampler": None}
+        ):
+            resp = client.post("/v1/chat/completions", json=body)
+
+        assert resp.status_code == 200
+        # tool_choice="none" means the chat template is not given tools at all.
+        assert mm.generate.call_args.kwargs.get("tools") is None
+        assert resp.json()["choices"][0]["finish_reason"] == "stop"
 
     def test_missing_messages_returns_422(self, client):
         assert client.post("/v1/chat/completions", json={"model": "m"}).status_code == 422
@@ -207,7 +297,7 @@ class TestListModels:
 
     def test_falls_back_to_settings(self, client, mm):
         mm.model_id = None
-        with patch("app.api.routes.settings") as s:
+        with patch("maic.api.routes.settings") as s:
             s.model_id = "default/fallback"
             resp = client.get("/v1/models")
         assert resp.json()["data"][0]["id"] == "default/fallback"
@@ -252,7 +342,7 @@ class TestDownloadModel:
         assert resp.json()["status"] == "already_downloading"
 
     def test_starts_thread(self, client, mm):
-        with patch("app.api.routes.threading") as mock_t:
+        with patch("maic.api.routes.threading") as mock_t:
             resp = client.post("/v1/models/download", json={"model_id": "org/m"})
         assert resp.json()["status"] == "started"
         mock_t.Thread.assert_called_once()
@@ -276,8 +366,146 @@ class TestDeleteModel:
         mm.delete_model.assert_called_once_with("org/model")
 
 
+class TestCacheClear:
+    def test_clear_cache_returns_cleared(self, client, mm):
+        resp = client.post("/v1/cache/clear")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cleared"
+        mm.clear_cache.assert_called_once()
+
+
+class TestSettings:
+    def test_get_settings_returns_defaults(self, client):
+        with patch("maic.api.routes.settings") as s:
+            s.max_kv_size = None
+            s.kv_bits = None
+            s.kv_group_size = 64
+            resp = client.get("/v1/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["max_kv_size"] is None
+        assert data["kv_bits"] is None
+        assert data["kv_group_size"] == 64
+
+    def test_update_settings_changes_values(self, client, mm):
+        with patch("maic.api.routes.settings") as s:
+            s.max_kv_size = None
+            s.kv_bits = None
+            s.kv_group_size = 64
+            resp = client.post("/v1/settings", json={"max_kv_size": 4096, "kv_bits": 8})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "updated"
+        assert s.max_kv_size == 4096
+        assert s.kv_bits == 8
+        mm.clear_cache.assert_called_once()
+
+    def test_update_settings_zero_disables(self, client, mm):
+        """Setting fields to null (omit) disables them. 0 is rejected by ge=1/ge=4 validators."""
+        with patch("maic.api.routes.settings") as s:
+            s.max_kv_size = 4096
+            s.kv_bits = 8
+            s.kv_group_size = 64
+            # 0 fails Field(ge=1) / Field(ge=4) validation → 422
+            resp = client.post("/v1/settings", json={"max_kv_size": 0, "kv_bits": 0})
+        assert resp.status_code == 422
+
+    def test_update_settings_null_clears_values(self, client, mm):
+        """Setting fields to null (omit) leaves them unchanged; handler only acts on non-None."""
+        with patch("maic.api.routes.settings") as s:
+            s.max_kv_size = 4096
+            s.kv_bits = 8
+            s.kv_group_size = 64
+            # Omitting the field leaves it at the existing value
+            resp = client.post("/v1/settings", json={})
+        assert resp.status_code == 200
+
+    def test_update_settings_no_change_skips_cache_clear(self, client, mm):
+        with patch("maic.api.routes.settings") as s:
+            s.max_kv_size = 4096
+            s.kv_bits = 8
+            s.kv_group_size = 64
+            client.post("/v1/settings", json={"max_kv_size": 4096})
+        mm.clear_cache.assert_not_called()
+
+    def test_get_settings_includes_batch_mode(self, client):
+        with patch("maic.api.routes.settings") as s:
+            s.max_kv_size = None
+            s.kv_bits = None
+            s.kv_group_size = 64
+            s.batch_mode = False
+            resp = client.get("/v1/settings")
+        assert resp.json()["batch_mode"] is False
+
+    def test_update_batch_mode(self, client, mm):
+        with (
+            patch("maic.api.routes.settings") as s,
+            patch("maic.api.routes.model_manager", mm),
+        ):
+            s.max_kv_size = None
+            s.kv_bits = None
+            s.kv_group_size = 64
+            s.batch_mode = False
+            mm.is_loaded = False
+            resp = client.post("/v1/settings", json={"batch_mode": True})
+        assert resp.json()["status"] == "updated"
+        assert s.batch_mode is True
+
+
+class TestQuantizeModel:
+    def test_404_when_not_downloaded(self, client, mm):
+        mm.is_downloaded.return_value = False
+        resp = client.post("/v1/models/quantize", json={"model_id": "org/m"})
+        assert resp.status_code == 404
+
+    def test_already_quantizing(self, client, mm):
+        mm.is_downloaded.return_value = True
+        _quantizations.set_downloading("org/m")
+        resp = client.post("/v1/models/quantize", json={"model_id": "org/m"})
+        assert resp.json()["status"] == "already_quantizing"
+
+    def test_starts_thread(self, client, mm):
+        mm.is_downloaded.return_value = True
+        with patch("maic.api.routes.threading") as mock_t:
+            resp = client.post("/v1/models/quantize", json={"model_id": "org/m", "q_bits": 8})
+        assert resp.json()["status"] == "started"
+        mock_t.Thread.assert_called_once()
+
+    def test_default_bits_is_4(self, client, mm):
+        mm.is_downloaded.return_value = True
+        with patch("maic.api.routes.threading"):
+            resp = client.post("/v1/models/quantize", json={"model_id": "org/m"})
+        assert resp.json()["status"] == "started"
+
+
+class TestListModelsCapabilities:
+    """GET /v1/models — capabilities field (tool_calling)."""
+
+    def test_returns_loaded_model_id(self, client, mm):
+        mm.model_id = "org/mymodel"
+        resp = client.get("/v1/models")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["object"] == "list"
+        assert data["data"][0]["id"] == "org/mymodel"
+
+    def test_capabilities_field_present(self, client, mm):
+        mm.model_id = "org/model"
+        mm.supports_tool_calling = True
+        resp = client.get("/v1/models")
+        card = resp.json()["data"][0]
+        assert "capabilities" in card
+        assert card["capabilities"]["tool_calling"] is True
+
+    def test_capabilities_false_when_no_tools(self, client, mm):
+        mm.model_id = "org/model"
+        mm.supports_tool_calling = False
+        resp = client.get("/v1/models")
+        card = resp.json()["data"][0]
+        assert card["capabilities"]["tool_calling"] is False
+
+
 class TestModelsStatus:
-    @patch("app.api.routes.TOTAL_RAM_GB", 16.0)
+    @patch("maic.api.routes.TOTAL_RAM_GB", 16.0)
     def test_response_shape(self, client, mm):
         mm.model_id = "org/active"
 
@@ -292,12 +520,12 @@ class TestModelsStatus:
         for key in ["id", "name", "size_gb", "feasible", "downloaded", "active", "requires_token"]:
             assert key in m, f"missing key: {key}"
 
-    @patch("app.api.routes.TOTAL_RAM_GB", 16.0)
-    @patch("app.api.routes.fetch_hub_models")
+    @patch("maic.api.routes.TOTAL_RAM_GB", 16.0)
+    @patch("maic.api.routes.fetch_hub_models")
     def test_download_error_extracted(self, mock_hub, client, mm):
         mm.model_id = None
 
-        from app.core.hub_fetcher import HubModel
+        from maic.core.hub_fetcher import HubModel
 
         mid = "mlx-community/SmolLM2-1.7B-Instruct-4bit"
         mock_hub.return_value = [HubModel(id=mid, size_gb=1.0, downloads=0, gated=False)]

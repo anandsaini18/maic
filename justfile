@@ -21,12 +21,19 @@ setup:
 
 # ── Development ───────────────────────────────────────────────────────────────
 
+# For contributors. End-users use: pip install maic[mlx] && maic run
 # Start backend API server (pass args e.g. just dev --model mlx-community/Llama-3.2-1B-Instruct-4bit)
 [group: 'dev']
 dev *ARGS:
     @[ -d .venv ] || (echo "✗ No venv found — run 'just setup' first" && exit 1)
     @echo "→ Starting backend on http://localhost:8001"
     {{VENV}}/python main.py {{ARGS}}
+
+# Launch inference server via maic CLI (equivalent to: maic run --model $MODEL --port $PORT)
+[group: 'dev']
+maic-run model="" port="8001":
+    @[ -d .venv ] || (echo "✗ No venv found — run 'just setup' first" && exit 1)
+    {{VENV}}/maic run {{ if model != "" { "--model " + model } else { "" } }} --port {{port}}
 
 # Start frontend Vite dev server (proxies API to port 8001)
 [group: 'dev']
@@ -66,9 +73,9 @@ test *ARGS:
 [group: 'quality']
 lint:
     @echo "→ Linting Python (ruff)..."
-    {{VENV}}/ruff check app/ tests/
+    {{VENV}}/ruff check maic/ tests/
     @echo "→ Type-checking Python (mypy)..."
-    {{VENV}}/mypy app/
+    {{VENV}}/mypy maic/
     @echo "→ Linting frontend (ESLint + tsc)..."
     cd frontend && npm run lint
     @echo "✓ All lint checks passed"
@@ -77,8 +84,8 @@ lint:
 [group: 'quality']
 fmt:
     @echo "→ Formatting Python..."
-    {{VENV}}/ruff check --fix app/ tests/
-    {{VENV}}/black app/ tests/
+    {{VENV}}/ruff check --fix maic/ tests/
+    {{VENV}}/black maic/ tests/
     @echo "✓ Done"
 
 # ── CI ────────────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 
-import { chatCompletion } from "../api/client";
+import { chatCompletion, clearCache } from "../api/client";
 import type { GenerationSettings, TpmPoint, UIMessage } from "../api/types";
 import { escapeHtml, renderMarkdown } from "../lib/markdown";
 import type { ToastType } from "./useToast";
@@ -23,6 +23,7 @@ export function useChat({ showToast, setLastInference, onTpmPoint }: UseChatOpts
   const clearConversation = useCallback(() => {
     setMessages([]);
     historyRef.current = [];
+    clearCache().catch(() => {});
   }, []);
 
   const sendMessage = useCallback(

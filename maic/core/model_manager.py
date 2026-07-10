@@ -13,16 +13,101 @@ import logging
 import os
 import time
 from collections.abc import Generator
+from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 import psutil
 
-from app.core.config import GenerationStrategy, settings
-from app.core.model_sizing import KNOWN_SIZES, KNOWN_SIZES_BY_RAM
-from app.core.token_stream import TokenStream
+from maic.core.config import GenerationStrategy, settings
+from maic.core.model_sizing import KNOWN_SIZES, KNOWN_SIZES_BY_RAM
+from maic.core.token_stream import TokenStream
 
 logger = logging.getLogger(__name__)
+
+
+# ── Tool-call format detection ────────────────────────────────────────────────
+
+
+class ToolCallFormat(str, Enum):
+    """Output format a model uses when emitting tool calls.
+
+    Detected at model-load time by inspecting the chat template Jinja2 source.
+    ``NONE`` means the model has no tool-calling support; ``UNKNOWN`` means the
+    template was present but didn't match any known pattern (the fallback
+    try-all parser is used in that case).
+    """
+
+    QWEN = "qwen"       # <tool_call>{"name":…,"arguments":{…}}</tool_call>
+    LLAMA3 = "llama3"   # <|python_tag|>[{"name":…,"parameters":{…}}]
+    MISTRAL = "mistral" # [TOOL_CALLS] [{"name":…,"arguments":{…}}]
+    DEEPSEEK = "deepseek"  # <|tool▁calls▁begin|>…<|tool▁sep|>…<|tool▁calls▁end|>
+    HERMES = "hermes"   # <tool_call>{"name":…,"arguments":{…}}</tool_call> (NousHermes variant)
+    UNKNOWN = "unknown" # Template present but format not recognised → fallback parser
+    NONE = "none"       # No tool-calling support in the chat template
+
+
+# Ordered list of (marker, format) pairs checked against the raw Jinja2 template.
+# Earlier entries take priority; the first match wins.
+_FORMAT_MARKERS: list[tuple[str, ToolCallFormat]] = [
+    ("<|python_tag|>", ToolCallFormat.LLAMA3),
+    ("[TOOL_CALLS]", ToolCallFormat.MISTRAL),
+    # DeepSeek uses Unicode word-joiners (U+2581) in special token names.
+    # Match both the exact Unicode form and an ASCII fallback.
+    ("tool\u2581calls\u2581begin", ToolCallFormat.DEEPSEEK),
+    ("tool_calls_begin", ToolCallFormat.DEEPSEEK),  # ASCII version in some configs
+    # Qwen / Kimi K2 templates reference '<tool_call>' blocks for model output AND
+    # '<tool_response>' for rendering tool results back.  QWEN must be checked before
+    # HERMES because Qwen templates contain BOTH markers; the first match wins.
+    ("<tool_call>", ToolCallFormat.QWEN),
+    # Hermes (NousResearch): uses '<tool_response>' as the result wrapper.
+    # Pure Hermes templates contain '<tool_response>' but NOT '<tool_call>', so they
+    # still land here after the QWEN check above falls through.
+    ("<tool_response>", ToolCallFormat.HERMES),
+    # Fallback: template defines tools section but format is unrecognised.
+    # Match the Jinja2 conditional that gates the tools block in templates.
+    ("{% if tools %}", ToolCallFormat.UNKNOWN),
+]
+
+
+def detect_tool_call_format(chat_template: str) -> ToolCallFormat:
+    """Inspect the raw Jinja2 chat template and return the model's tool-call format.
+
+    The template is the raw string stored in ``tokenizer_config.json`` under the
+    ``chat_template`` key.  We pattern-match on literal marker strings that appear
+    in every known family's template; the first match wins.  Returns ``NONE`` when
+    no tool-aware markers are found at all.
+
+    This runs once at model-load time and the result is cached on the manager, so
+    it has no impact on hot-path inference performance.
+    """
+    if not isinstance(chat_template, str) or not chat_template:
+        return ToolCallFormat.NONE
+    for marker, fmt in _FORMAT_MARKERS:
+        if marker in chat_template:
+            # Distinguish UNKNOWN from NONE: only return UNKNOWN when the template
+            # actually references tools (caught by the "tools" marker above), but
+            # didn't match any concrete format.
+            return fmt
+    return ToolCallFormat.NONE
+
+
+# Thinking-mode detection markers — any of these in the raw Jinja2 template
+# indicates the model supports extended chain-of-thought via enable_thinking=True.
+# Qwen3 templates reference ``enable_thinking`` as a template variable; some also
+# emit literal ``<think>`` tokens.
+_THINKING_MARKERS: tuple[str, ...] = ("enable_thinking", "<think>")
+
+
+def detect_thinking_support(chat_template: str) -> bool:
+    """Return True if the model's chat template supports ``enable_thinking=True``.
+
+    Checks for Qwen3-style thinking markers in the raw Jinja2 template source.
+    This runs once at load time; the result is stored on the manager instance.
+    """
+    if not isinstance(chat_template, str) or not chat_template:
+        return False
+    return any(marker in chat_template for marker in _THINKING_MARKERS)
 
 # ── Cached total RAM (constant for the lifetime of the process) ───────────────
 # Used by hot paths (models_status polling, adapter feasibility checks) to avoid
@@ -39,9 +124,30 @@ def _model_local_path(model_id: str) -> Path:
 
     Using '--' keeps every model in a flat folder (simpler management) rather than
     creating nested subdirectories.
+
+    Validates model ID format to prevent path traversal attacks.
     """
+    import re
+
+    # Whitelist: org/name format (HuggingFace standard)
+    # Allows org names and model names with alphanumerics, hyphens, underscores, dots, and colons
+    if not re.match(r'^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.:,-]+$', model_id):
+        raise ValueError(
+            f"Invalid model ID format: '{model_id}'. "
+            f"Expected format: 'organization/model-name' (alphanumerics, hyphens, underscores, dots allowed)"
+        )
+
     models_dir = Path(settings.models_dir).expanduser().resolve()
-    return models_dir / model_id.replace("/", "--")
+    safe_name = model_id.replace("/", "--")
+    final_path = models_dir / safe_name
+
+    # Verify the resolved path is under models_dir (prevent symlink escape / directory traversal)
+    try:
+        final_path.resolve().relative_to(models_dir.resolve())
+    except ValueError as exc:
+        raise ValueError(f"Path traversal detected in model_id: {model_id}") from exc
+
+    return final_path
 
 
 def _ensure_model_downloaded(model_id: str, local_path: Path) -> None:
@@ -177,9 +283,17 @@ class ModelManager:
         self._observers: list[InferenceObserver] = [StatsObserver()]
         # Populated after load() — text forms of all EOS tokens for stop-string detection
         self._stop_strings: frozenset[str] = frozenset()
+        # Tool-call format detected from the chat template at load time.
+        self._tool_call_format: ToolCallFormat = ToolCallFormat.NONE
+        # Whether the loaded model's chat template supports enable_thinking=True.
+        self._supports_thinking: bool = False
         # Cached module references set after load() — avoids re-importing on every generate()
         self._mx: Any = None
         self._mlx_lm: Any = None
+        # KV prompt cache — persists across generate() calls within a conversation
+        # so previously-seen tokens are not re-processed. Reset on model switch or
+        # explicit clear_cache() call. Created lazily in _ensure_prompt_cache().
+        self._prompt_cache: Any = None
         # Per-instance TTL caches for is_downloaded / disk_size_gb / local_model_ids.
         # Instance-level (not module-level) so tests that create fresh ModelManager()
         # instances start with an empty cache and don't bleed state across test runs.
@@ -323,13 +437,20 @@ class ModelManager:
             self._model, self._tokenizer = result[0], result[1]
             self._model_id = model_id
             self._stop_strings = self._derive_stop_strings()
+            # Detect tool-call format from the chat template (once per load).
+            raw_template = getattr(self._tokenizer, "chat_template", "")
+            chat_template = raw_template if isinstance(raw_template, str) else ""
+            self._tool_call_format = detect_tool_call_format(chat_template)
+            self._supports_thinking = detect_thinking_support(chat_template)
             # Cache mlx_lm reference so generate() avoids re-importing on every call.
             # mlx.core is cached lazily on the first generate() call (it's only needed there).
             self._mlx_lm = mlx_lm
             logger.info(
-                "Model '%s' loaded. Stop strings: %s",
+                "Model '%s' loaded. Stop strings: %s. Tool-call format: %s. Thinking: %s",
                 model_id,
                 self._stop_strings,
+                self._tool_call_format.value,
+                self._supports_thinking,
             )
         except Exception as exc:
             logger.error("Failed to load model '%s' from disk: %s", model_id, exc, exc_info=True)
@@ -338,9 +459,43 @@ class ModelManager:
                 f"The local files may be corrupted — try re-downloading the model."
             ) from exc
 
+        # Reset prompt cache — the old cache belongs to the previous model
+        self._prompt_cache = None
         # Invalidate download/disk-size cache for this model after a successful load
         self._download_cache.pop(model_id, None)
         self._disk_size_cache.pop(model_id, None)
+
+        # Start/restart batch manager if batch mode is enabled
+        if settings.batch_mode:
+            from maic.core.batch_manager import batch_manager
+
+            batch_manager.start(self._model, self._tokenizer)
+
+    # ── Prompt cache management ─────────────────────────────────────────────
+
+    def _ensure_prompt_cache(self) -> Any:
+        """Return the current prompt cache, creating one if needed.
+
+        The cache is created lazily (not in load()) so that the mlx_lm.models.cache
+        import only happens when generation is actually requested.
+        """
+        if self._prompt_cache is None:
+            from mlx_lm.models.cache import make_prompt_cache
+
+            cache_kwargs: dict[str, Any] = {}
+            if settings.max_kv_size is not None:
+                cache_kwargs["max_kv_size"] = settings.max_kv_size
+            self._prompt_cache = make_prompt_cache(self._model, **cache_kwargs)
+            logger.debug("Created new prompt cache (max_kv_size=%s)", settings.max_kv_size)
+        return self._prompt_cache
+
+    def clear_cache(self) -> None:
+        """Discard the current prompt cache so the next generate() starts fresh.
+
+        Called when the user starts a new conversation or switches context.
+        """
+        self._prompt_cache = None
+        logger.debug("Prompt cache cleared")
 
     @property
     def is_loaded(self) -> bool:
@@ -352,12 +507,65 @@ class ModelManager:
         """The HuggingFace model ID that is currently loaded, or None if not loaded yet."""
         return self._model_id
 
+    @property
+    def tokenizer(self) -> Any:
+        """The tokenizer for the currently loaded model. None if no model is loaded."""
+        return self._tokenizer
+
+    @property
+    def tool_call_format(self) -> ToolCallFormat:
+        """Tool-call output format detected from the loaded model's chat template.
+
+        Returns ``NONE`` when no model is loaded or the template has no tool support.
+        Callers should use this to route to the correct parser rather than trying
+        every known format on every response.
+        """
+        return self._tool_call_format
+
+    @property
+    def supports_tool_calling(self) -> bool:
+        """True if the currently loaded model's chat template supports tool calls."""
+        return self._tool_call_format not in (ToolCallFormat.NONE, ToolCallFormat.UNKNOWN)
+
+    @property
+    def supports_thinking(self) -> bool:
+        """True if the loaded model supports ``enable_thinking=True`` in apply_chat_template.
+
+        Qwen3 templates expose this variable; passing it to a tokenizer that does not
+        support it raises a TypeError/KeyError, so callers must gate on this property.
+        """
+        return self._supports_thinking
+
+    def tool_call_format_for(self, model_id: str) -> ToolCallFormat:
+        """Return the tool-call format for any model — loaded or just downloaded.
+
+        If *model_id* is the currently loaded model, returns the already-detected
+        format.  For a downloaded (but not loaded) model, reads the
+        ``tokenizer_config.json`` from disk and runs detection.  Falls back to
+        ``NONE`` when the model is not on disk or the config is unreadable.
+        """
+        if model_id == self._model_id:
+            return self._tool_call_format
+        local_path = _model_local_path(model_id)
+        config_path = local_path / "tokenizer_config.json"
+        if not config_path.exists():
+            return ToolCallFormat.NONE
+        try:
+            import json as _json
+
+            cfg = _json.loads(config_path.read_text())
+            template = cfg.get("chat_template", "") or ""
+            return detect_tool_call_format(template)
+        except Exception:
+            return ToolCallFormat.NONE
+
     # ── Generation (Facade entry point) ──────────────────────────────────────
 
     def generate(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         strategy: GenerationStrategy,
+        tools: list[dict[str, Any]] | None = None,
     ) -> TokenStream:
         """
         Run inference on a list of chat messages and return a TokenStream.
@@ -373,6 +581,10 @@ class ModelManager:
 
         The 'strategy' argument controls sampling (temperature, top_p, max_tokens).
         Pass default_strategy for normal use, greedy_strategy for deterministic output.
+
+        The optional 'tools' argument is a list of OpenAI-style tool definitions.
+        When provided, they are passed to the chat template so the model can emit
+        tool calls; the caller is responsible for parsing those out of the output.
         """
         # Use cached module references set during load() — avoids sys.modules lookup per call.
         # If _mlx_lm is None (e.g., in tests that set up mm internals without calling load()),
@@ -388,13 +600,34 @@ class ModelManager:
             self._mlx_lm = mlx_lm
         mlx_lm = self._mlx_lm
 
-        # Apply chat template and tokenize messages in one step
-        # Ensures special tokens are properly encoded for EOS detection
+        # Apply chat template and tokenize messages in one step.
+        # Ensures special tokens are properly encoded for EOS detection.
+        # When `tools` are provided, the model's chat template injects the tool
+        # signatures and instructs the model to emit <tool_call> blocks; passing
+        # None leaves the template's non-tool path unchanged.
+        # `enable_thinking=True` is passed only when the template supports it
+        # (Qwen3 family); passing it to an unsupported tokenizer raises TypeError.
+        template_kwargs: dict[str, Any] = {
+            "tools": tools,
+            "tokenize": True,
+            "add_generation_prompt": True,
+        }
+        if self._supports_thinking:
+            template_kwargs["enable_thinking"] = True
         token_ids: list[int] = self._tokenizer.apply_chat_template(
             messages,
-            tokenize=True,
-            add_generation_prompt=True,
+            **template_kwargs,
         )
+        prompt_len = len(token_ids)
+        if prompt_len > 4000:
+            logger.warning(
+                "Large prompt detected: %d tokens (tools=%d). "
+                "KV-cache prefill will dominate inference time.",
+                prompt_len,
+                len(tools) if tools else 0,
+            )
+        else:
+            logger.debug("Prompt length: %d tokens", prompt_len)
         prompt = mx.array(token_ids)
 
         gen_kwargs = strategy(
@@ -402,6 +635,11 @@ class ModelManager:
             temperature=settings.temperature,
             top_p=settings.top_p,
         )
+
+        gen_kwargs["prompt_cache"] = self._ensure_prompt_cache()
+        if settings.kv_bits is not None:
+            gen_kwargs["kv_bits"] = settings.kv_bits
+            gen_kwargs["kv_group_size"] = settings.kv_group_size
 
         raw_gen = mlx_lm.stream_generate(
             self._model,
@@ -579,6 +817,7 @@ class ModelManager:
             )
 
         stream = TokenStream(_observed(), on_complete=_on_complete)
+        stream.prompt_tokens = len(token_ids)
         return stream
 
     # ── Model management (for UI) ────────────────────────────────────────────
@@ -659,6 +898,77 @@ class ModelManager:
 
         self._local_ids_cache = (result, now + _LOCAL_IDS_CACHE_TTL)
         return result
+
+    # ── Quantization ──────────────────────────────────────────────────────
+
+    def quantization_info(self, model_id: str) -> str | None:
+        """Read quantization details from a model's config.json, or None if unquantized."""
+        local_path = _model_local_path(model_id)
+        config_path = local_path / "config.json"
+        if not config_path.exists():
+            return None
+        try:
+            import json as _json
+
+            cfg = _json.loads(config_path.read_text())
+            quant = cfg.get("quantization")
+            if not quant:
+                return None
+            bits = quant.get("bits")
+            group_size = quant.get("group_size")
+            return f"{bits}bit (g={group_size})" if bits else None
+        except Exception:
+            return None
+
+    def quantize_model(
+        self,
+        model_id: str,
+        *,
+        q_bits: int = 4,
+        q_group_size: int = 64,
+        quant_predicate: str | None = None,
+    ) -> str:
+        """Quantize a downloaded model and save the result as a new model directory.
+
+        Returns the new model ID (e.g. ``org/model-4bit``).
+        """
+        source_path = _model_local_path(model_id)
+        if not source_path.exists():
+            raise ModelLoadError(f"Source model '{model_id}' not found on disk.")
+
+        suffix = f"-{q_bits}bit" if quant_predicate is None else f"-{quant_predicate}"
+        new_model_id = f"{model_id}{suffix}"
+        output_path = _model_local_path(new_model_id)
+
+        if output_path.exists():
+            raise RuntimeError(
+                f"Quantized model already exists at '{output_path}'. "
+                "Delete it first if you want to re-quantize."
+            )
+
+        import mlx_lm
+
+        convert_kwargs: dict[str, Any] = {
+            "hf_path": str(source_path),
+            "mlx_path": str(output_path),
+            "quantize": True,
+            "q_bits": q_bits,
+            "q_group_size": q_group_size,
+        }
+        if quant_predicate is not None:
+            convert_kwargs["quant_predicate"] = quant_predicate
+
+        logger.info(
+            "Quantizing '%s' → '%s' (%d-bit, group_size=%d) …",
+            model_id, new_model_id, q_bits, q_group_size,
+        )
+        mlx_lm.convert(**convert_kwargs)
+        logger.info("Quantization complete: %s", output_path)
+
+        self._local_ids_cache = None
+        self._download_cache.pop(new_model_id, None)
+        self._disk_size_cache.pop(new_model_id, None)
+        return new_model_id
 
 
 # Module-level singleton instance used throughout the app

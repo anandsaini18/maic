@@ -1,3 +1,4 @@
+import { updateSettings } from "../../api/client";
 import type { GenerationSettings as Settings } from "../../api/types";
 import SliderGroup from "./SliderGroup";
 import ToggleRow from "./ToggleRow";
@@ -10,6 +11,15 @@ interface Props {
 export default function GenerationSettings({ settings, onChange }: Props) {
   const set = <K extends keyof Settings>(key: K, val: Settings[K]) =>
     onChange({ ...settings, [key]: val });
+
+  const setKvSetting = (key: "maxKvSize" | "kvBits", val: number) => {
+    onChange({ ...settings, [key]: val });
+    const payload =
+      key === "maxKvSize"
+        ? { max_kv_size: val }
+        : { kv_bits: val };
+    updateSettings(payload).catch(() => {});
+  };
 
   return (
     <>
@@ -85,6 +95,47 @@ export default function GenerationSettings({ settings, onChange }: Props) {
           description="Display tokens as they are generated."
           value={settings.stream}
           onChange={(v) => set("stream", v)}
+        />
+      </div>
+
+      {/* ── KV Cache ─────────────────────────────────────── */}
+      <div className="p-5 border-b border-warm-border">
+        <div className="font-display text-[11px] font-medium uppercase tracking-[1.5px] text-warm-muted mb-4">
+          KV Cache
+        </div>
+        <SliderGroup
+          label="Max KV Size"
+          description="Cap the KV cache to this many entries (rotating). 0 = unlimited."
+          value={settings.maxKvSize}
+          min={0}
+          max={16384}
+          step={512}
+          onChange={(v) => setKvSetting("maxKvSize", v)}
+        />
+        <SliderGroup
+          label="KV Cache Bits"
+          description="Quantize the KV cache to fewer bits for lower memory usage. 0 = full precision."
+          value={settings.kvBits}
+          min={0}
+          max={8}
+          step={4}
+          onChange={(v) => setKvSetting("kvBits", v)}
+        />
+      </div>
+
+      {/* ── Batching ──────────────────────────────────────── */}
+      <div className="p-5 border-b border-warm-border">
+        <div className="font-display text-[11px] font-medium uppercase tracking-[1.5px] text-warm-muted mb-4">
+          Batching
+        </div>
+        <ToggleRow
+          label="Continuous batching"
+          description="Serve multiple requests concurrently via BatchGenerator."
+          value={settings.batchMode}
+          onChange={(v) => {
+            onChange({ ...settings, batchMode: v });
+            updateSettings({ batch_mode: v }).catch(() => {});
+          }}
         />
       </div>
 

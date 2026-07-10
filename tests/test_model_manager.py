@@ -5,16 +5,19 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from app.core.model_manager import (
+from maic.core.model_manager import (
     InferenceObserver,
     ModelLoadError,
     ModelManager,
     ModelTooLargeError,
     StatsObserver,
+    ToolCallFormat,
     _ensure_model_downloaded,
     _model_local_path,
+    detect_thinking_support,
+    detect_tool_call_format,
 )
-from app.core.model_sizing import GATED_MODELS, KNOWN_SIZES, KNOWN_SIZES_BY_RAM
+from maic.core.model_sizing import GATED_MODELS, KNOWN_SIZES, KNOWN_SIZES_BY_RAM
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tests for _model_local_path
@@ -24,7 +27,7 @@ from app.core.model_sizing import GATED_MODELS, KNOWN_SIZES, KNOWN_SIZES_BY_RAM
 class TestModelLocalPath:
     """Tests for model ID to path conversion."""
 
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_converts_slash_to_double_dash(self, mock_settings):
         """Should replace '/' with '--' in model paths."""
         mock_settings.models_dir = "/tmp/models"
@@ -35,7 +38,7 @@ class TestModelLocalPath:
         # No slash after models dir
         assert "/" not in str(result).split("/models/")[1]
 
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_expands_home_directory(self, mock_settings):
         """Should expand ~ to home directory."""
         mock_settings.models_dir = "~/models"
@@ -46,19 +49,15 @@ class TestModelLocalPath:
         assert "~" not in str(result)
         assert str(result).startswith("/")
 
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_handles_multiple_slashes(self, mock_settings):
-        """Should handle model IDs with multiple slashes."""
+        """Model IDs with multiple slashes are rejected (not a valid HF org/model ID)."""
         mock_settings.models_dir = "/tmp/models"
 
-        result = _model_local_path("deep/nested/model/name")
+        with pytest.raises(ValueError, match="Invalid model ID format"):
+            _model_local_path("deep/nested/model/name")
 
-        # All slashes should be converted to --
-        path_str = str(result)
-        assert path_str.count("--") == 3
-        assert "/" not in path_str.split("/models/")[1]
-
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_returns_path_object(self, mock_settings):
         """Should return a Path object."""
         mock_settings.models_dir = "/tmp"
@@ -160,7 +159,7 @@ class TestCheckRAM:
         mm = ModelManager()
 
         # Mock psutil to return 10GB RAM, model needs 7GB (70%)
-        with patch("app.core.model_manager.psutil.virtual_memory") as mock_mem:
+        with patch("maic.core.model_manager.psutil.virtual_memory") as mock_mem:
             mock_mem.return_value.total = 10 * (1024**3)
             mock_mem.return_value.available = 10 * (1024**3)
 
@@ -172,7 +171,7 @@ class TestCheckRAM:
         mm = ModelManager()
 
         # Mock psutil to return 2GB RAM, model needs 4GB
-        with patch("app.core.model_manager.psutil.virtual_memory") as mock_mem:
+        with patch("maic.core.model_manager.psutil.virtual_memory") as mock_mem:
             mock_mem.return_value.total = 2 * (1024**3)
             mock_mem.return_value.available = 2 * (1024**3)
 
@@ -192,7 +191,7 @@ class TestCheckRAM:
         """Should suggest smaller models when rejecting too-large models."""
         mm = ModelManager()
 
-        with patch("app.core.model_manager.psutil.virtual_memory") as mock_mem:
+        with patch("maic.core.model_manager.psutil.virtual_memory") as mock_mem:
             mock_mem.return_value.total = 3 * (1024**3)  # 3GB
             mock_mem.return_value.available = 3 * (1024**3)
 
@@ -208,7 +207,7 @@ class TestCheckRAM:
         mm = ModelManager()
 
         # 10GB RAM, 80% = 8GB limit
-        with patch("app.core.model_manager.psutil.virtual_memory") as mock_mem:
+        with patch("maic.core.model_manager.psutil.virtual_memory") as mock_mem:
             mock_mem.return_value.total = 10 * (1024**3)
 
             # 8GB model at 80% should fail
@@ -285,7 +284,7 @@ class TestObserverPattern:
         """StatsObserver should log performance stats."""
         observer = StatsObserver()
 
-        with patch("app.core.model_manager.logger") as mock_logger:
+        with patch("maic.core.model_manager.logger") as mock_logger:
             stats = {"token_count": 42, "elapsed": 2.0, "tokens_per_second": 21.0}
             observer.on_complete(stats)
 
@@ -306,7 +305,7 @@ class TestObserverPattern:
 class TestModelLoad:
     """Tests for model loading logic."""
 
-    @patch("app.core.model_manager._ensure_model_downloaded")
+    @patch("maic.core.model_manager._ensure_model_downloaded")
     def test_load_successful_flow(self, mock_download):
         """Should download, load, and derive stop strings."""
         mm = ModelManager()
@@ -327,7 +326,7 @@ class TestModelLoad:
         assert mm._model_id == "test/model"
         mock_download.assert_called_once()
 
-    @patch("app.core.model_manager._ensure_model_downloaded")
+    @patch("maic.core.model_manager._ensure_model_downloaded")
     def test_load_checks_ram_before_download(self, mock_download):
         """Should check RAM before attempting download."""
         mm = ModelManager()
@@ -341,7 +340,7 @@ class TestModelLoad:
             # Download should not be called
             mock_download.assert_not_called()
 
-    @patch("app.core.model_manager._ensure_model_downloaded")
+    @patch("maic.core.model_manager._ensure_model_downloaded")
     def test_load_wraps_download_errors(self, mock_download):
         """Should wrap download errors in ModelLoadError."""
         mm = ModelManager()
@@ -354,7 +353,7 @@ class TestModelLoad:
             assert "Failed to download" in str(exc_info.value)
             assert "Network error" not in str(exc_info.value)
 
-    @patch("app.core.model_manager._ensure_model_downloaded")
+    @patch("maic.core.model_manager._ensure_model_downloaded")
     def test_load_wraps_mlx_errors(self, mock_download):
         """Should wrap MLX loading errors in ModelLoadError."""
         mm = ModelManager()
@@ -472,7 +471,7 @@ class TestDeriveStopStrings:
 class TestModelManagement:
     """Tests for is_downloaded, download_model, delete_model, disk_size_gb."""
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_is_downloaded_returns_true_with_safetensors(self, mock_path):
         """is_downloaded should return True if .safetensors exists."""
         mm = ModelManager()
@@ -484,7 +483,7 @@ class TestModelManagement:
 
         assert result is True
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_is_downloaded_returns_false_if_empty(self, mock_path):
         """is_downloaded should return False if no weight files."""
         mm = ModelManager()
@@ -496,8 +495,8 @@ class TestModelManagement:
 
         assert result is False
 
-    @patch("app.core.model_manager._ensure_model_downloaded")
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._ensure_model_downloaded")
+    @patch("maic.core.model_manager._model_local_path")
     def test_download_model(self, mock_path, mock_ensure_download):
         """download_model should ensure model is downloaded."""
         mm = ModelManager()
@@ -508,7 +507,7 @@ class TestModelManagement:
 
             mock_ensure_download.assert_called_once()
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_delete_model_refuses_loaded_model(self, mock_path):
         """delete_model should refuse to delete currently loaded model."""
         mm = ModelManager()
@@ -519,7 +518,7 @@ class TestModelManagement:
 
         assert "currently loaded" in str(exc_info.value)
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_delete_model_removes_directory(self, mock_path):
         """delete_model should remove model directory."""
         mm = ModelManager()
@@ -534,7 +533,7 @@ class TestModelManagement:
 
             mock_rmtree.assert_called_once()
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_disk_size_gb_returns_none_if_not_downloaded(self, mock_path):
         """disk_size_gb should return None if model not downloaded."""
         mm = ModelManager()
@@ -546,7 +545,7 @@ class TestModelManagement:
 
         assert result is None
 
-    @patch("app.core.model_manager._model_local_path")
+    @patch("maic.core.model_manager._model_local_path")
     def test_disk_size_gb_calculates_size(self, mock_path):
         """disk_size_gb should calculate total size in GB."""
         mm = ModelManager()
@@ -608,32 +607,81 @@ class TestConstants:
 class TestPathSecurity:
     """Tests to ensure no path traversal vulnerabilities."""
 
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_no_path_traversal_in_model_id(self, mock_settings):
-        """Should safely handle model IDs with '..' safely."""
+        """Model IDs with '..' are rejected by format validation before path resolution."""
         mock_settings.models_dir = "/safe/models"
 
-        # Attempt path traversal
-        result = _model_local_path("../../etc/passwd")
+        with pytest.raises(ValueError, match="Invalid model ID format"):
+            _model_local_path("../../etc/passwd")
 
-        # Should still be under models directory (due to resolve())
-        assert str(result).startswith("/safe/models")
-
-    @patch("app.core.model_manager.settings")
+    @patch("maic.core.model_manager.settings")
     def test_handles_absolute_paths_in_model_id(self, mock_settings):
-        """Should not allow absolute paths in model IDs."""
+        """Absolute paths in model IDs are rejected by format validation."""
         mock_settings.models_dir = "/safe/models"
 
-        # Attempt to use absolute path
-        result = _model_local_path("/etc/passwd/model")
-
-        # Should still append to models dir
-        assert str(result).startswith("/safe/models")
+        with pytest.raises(ValueError, match="Invalid model ID format"):
+            _model_local_path("/etc/passwd/model")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tests for stop string trimming in _observed (Layer 1 and Layer 3)
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestPromptCache:
+    """Tests for prompt cache lifecycle."""
+
+    def test_clear_cache_resets_to_none(self):
+        mm = ModelManager()
+        mm._prompt_cache = "something"
+        mm.clear_cache()
+        assert mm._prompt_cache is None
+
+    def test_load_resets_prompt_cache(self):
+        """load() should discard the old prompt cache."""
+        mm = ModelManager()
+        mm._prompt_cache = "old_cache"
+        mock_model = Mock()
+        mock_tokenizer = Mock()
+        mock_tokenizer.eos_token_ids = []
+
+        mock_mlx = MagicMock()
+        mock_mlx.load.return_value = (mock_model, mock_tokenizer)
+
+        with patch.object(mm, "_check_ram"):
+            with patch("maic.core.model_manager._ensure_model_downloaded"):
+                with patch.dict("sys.modules", {"mlx_lm": mock_mlx}):
+                    with patch.object(mm, "_derive_stop_strings", return_value=frozenset()):
+                        mm.load("test/model")
+
+        assert mm._prompt_cache is None
+
+    def test_ensure_prompt_cache_creates_cache(self):
+        """_ensure_prompt_cache should create a cache on first call."""
+        mm = ModelManager()
+        mm._model = Mock()
+
+        mock_cache = Mock()
+        with patch("maic.core.model_manager.settings") as mock_settings:
+            mock_settings.max_kv_size = None
+            mock_settings.kv_bits = None
+            mock_settings.kv_group_size = 64
+            with patch.dict(
+                "sys.modules",
+                {"mlx_lm": MagicMock(), "mlx_lm.models": MagicMock(), "mlx_lm.models.cache": MagicMock()},
+            ):
+                with patch("mlx_lm.models.cache.make_prompt_cache", return_value=mock_cache):
+                    result = mm._ensure_prompt_cache()
+
+        assert result is mock_cache
+        assert mm._prompt_cache is mock_cache
+
+    def test_ensure_prompt_cache_reuses_existing(self):
+        """_ensure_prompt_cache should return existing cache without recreating."""
+        mm = ModelManager()
+        mm._prompt_cache = "existing"
+        assert mm._ensure_prompt_cache() == "existing"
 
 
 class TestStopStringTrimming:
@@ -656,10 +704,13 @@ class TestStopStringTrimming:
         with patch.dict(
             "sys.modules", {"mlx": MagicMock(), "mlx.core": mock_mx, "mlx_lm": mock_mlx}
         ):
-            with patch("app.core.model_manager.settings") as mock_settings:
+            with patch("maic.core.model_manager.settings") as mock_settings:
                 mock_settings.max_tokens = 512
                 mock_settings.temperature = 0.7
                 mock_settings.top_p = 0.9
+                mock_settings.max_kv_size = None
+                mock_settings.kv_bits = None
+                mock_settings.kv_group_size = 64
                 stream = mm.generate([], strategy)
                 return "".join(stream)
 
@@ -672,10 +723,13 @@ class TestStopStringTrimming:
         with patch.dict(
             "sys.modules", {"mlx": MagicMock(), "mlx.core": mock_mx, "mlx_lm": mock_mlx}
         ):
-            with patch("app.core.model_manager.settings") as mock_settings:
+            with patch("maic.core.model_manager.settings") as mock_settings:
                 mock_settings.max_tokens = 512
                 mock_settings.temperature = 0.7
                 mock_settings.top_p = 0.9
+                mock_settings.max_kv_size = None
+                mock_settings.kv_bits = None
+                mock_settings.kv_group_size = 64
                 stream = mm.generate([], strategy)
                 return list(stream)
 
@@ -685,6 +739,7 @@ class TestStopStringTrimming:
         mm._tokenizer = Mock()
         mm._tokenizer.apply_chat_template.return_value = [1, 2, 3]
         mm._stop_strings = frozenset(stop_strings)
+        mm._prompt_cache = []  # Pre-set so _ensure_prompt_cache skips the import
         return mm
 
     # ── Layer 1 ──────────────────────────────────────────────────────────────
@@ -778,3 +833,279 @@ class TestStopStringTrimming:
 
         assert "".join(chunks) == ("a" * 120 + "z")
         assert len(chunks) > 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Quantization
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestQuantizationInfo:
+    @patch("maic.core.model_manager.settings")
+    def test_returns_none_when_no_config(self, mock_settings, tmp_path):
+        mock_settings.models_dir = str(tmp_path)
+        mm = ModelManager()
+        assert mm.quantization_info("org/model") is None
+
+    @patch("maic.core.model_manager.settings")
+    def test_returns_none_when_no_quant_key(self, mock_settings, tmp_path):
+        mock_settings.models_dir = str(tmp_path)
+        model_dir = tmp_path / "org--model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text('{"hidden_size": 768}')
+        mm = ModelManager()
+        assert mm.quantization_info("org/model") is None
+
+    @patch("maic.core.model_manager.settings")
+    def test_returns_info_string(self, mock_settings, tmp_path):
+        mock_settings.models_dir = str(tmp_path)
+        model_dir = tmp_path / "org--model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text(
+            '{"quantization": {"bits": 4, "group_size": 64}}'
+        )
+        mm = ModelManager()
+        assert mm.quantization_info("org/model") == "4bit (g=64)"
+
+    @patch("maic.core.model_manager.settings")
+    def test_returns_none_for_corrupt_json(self, mock_settings, tmp_path):
+        mock_settings.models_dir = str(tmp_path)
+        model_dir = tmp_path / "org--model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text("{bad json")
+        mm = ModelManager()
+        assert mm.quantization_info("org/model") is None
+
+
+class TestQuantizeModel:
+    @patch("maic.core.model_manager.settings")
+    def test_raises_when_source_missing(self, mock_settings, tmp_path):
+        mock_settings.models_dir = str(tmp_path)
+        mm = ModelManager()
+        with pytest.raises(ModelLoadError, match="not found on disk"):
+            mm.quantize_model("org/model")
+
+    @patch("maic.core.model_manager.settings")
+    def test_raises_when_output_exists(self, mock_settings, tmp_path):
+        mock_settings.models_dir = str(tmp_path)
+        (tmp_path / "org--model").mkdir()
+        (tmp_path / "org--model-4bit").mkdir()
+        mm = ModelManager()
+        with pytest.raises(RuntimeError, match="already exists"):
+            mm.quantize_model("org/model")
+
+    @patch("maic.core.model_manager.settings")
+    def test_calls_convert_with_correct_args(self, mock_settings, tmp_path):
+        mock_settings.models_dir = str(tmp_path)
+        (tmp_path / "org--model").mkdir()
+
+        mock_mlx_lm = MagicMock()
+        with patch.dict("sys.modules", {"mlx_lm": mock_mlx_lm}):
+            mm = ModelManager()
+            result = mm.quantize_model("org/model", q_bits=8, q_group_size=32)
+
+        assert result == "org/model-8bit"
+        mock_mlx_lm.convert.assert_called_once()
+        call_kwargs = mock_mlx_lm.convert.call_args[1]
+        assert call_kwargs["q_bits"] == 8
+        assert call_kwargs["q_group_size"] == 32
+        assert call_kwargs["quantize"] is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool-call format detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Abbreviated template snippets — just the markers that drive detection.
+_QWEN_TEMPLATE = (
+    "{%- if tools %}\n{{- '<|im_start|>system\\n' }}\n"
+    "{%- for tool in tools %}\n{{- tool | tojson }}\n{%- endfor %}\n"
+    "If you need to call a tool, use <tool_call> JSON </tool_call>\n"
+)
+_LLAMA3_TEMPLATE = (
+    "{% if tools %}<|python_tag|>[{\"name\":\"...\",\"parameters\":{}}]\n"
+    "{% endif %}<|eot_id|>"
+)
+_MISTRAL_TEMPLATE = (
+    "{% if tool_calls %}[TOOL_CALLS] "
+    "[{\"name\":\"...\",\"arguments\":{}}]{% endif %}"
+)
+_DEEPSEEK_TEMPLATE = (
+    "{% if tools %}<|\u2581tool\u2581calls\u2581begin\u2581|>"
+    "... <|\u2581tool\u2581sep\u2581|> ... <|\u2581tool\u2581calls\u2581end\u2581|>"
+    "{% endif %}"
+)
+_DEEPSEEK_TEMPLATE_V2 = (
+    "tool\u2581calls\u2581begin content here"
+)
+_HERMES_TEMPLATE = (
+    "{%- for message in messages %}\n"
+    "{%- if message.role == 'tool' %}<tool_response>{{message.content}}</tool_response>\n"
+    "{%- endif %}\n{%- endfor %}"
+)
+_NO_TOOLS_TEMPLATE = (
+    "{% for message in messages %}{% if message.role == 'user' %}"
+    "{{ message.content }}{% endif %}{% endfor %}"
+)
+
+
+class TestDetectToolCallFormat:
+    """Tests for the chat-template-based tool-call format detector."""
+
+    def test_empty_template_returns_none(self):
+        assert detect_tool_call_format("") == ToolCallFormat.NONE
+
+    def test_no_tool_markers_returns_none(self):
+        assert detect_tool_call_format(_NO_TOOLS_TEMPLATE) == ToolCallFormat.NONE
+
+    def test_qwen_template_detected(self):
+        assert detect_tool_call_format(_QWEN_TEMPLATE) == ToolCallFormat.QWEN
+
+    def test_llama3_template_detected(self):
+        assert detect_tool_call_format(_LLAMA3_TEMPLATE) == ToolCallFormat.LLAMA3
+
+    def test_mistral_template_detected(self):
+        assert detect_tool_call_format(_MISTRAL_TEMPLATE) == ToolCallFormat.MISTRAL
+
+    def test_deepseek_template_detected(self):
+        assert detect_tool_call_format(_DEEPSEEK_TEMPLATE_V2) == ToolCallFormat.DEEPSEEK
+
+    def test_hermes_template_detected(self):
+        assert detect_tool_call_format(_HERMES_TEMPLATE) == ToolCallFormat.HERMES
+
+    def test_template_with_tools_keyword_only_returns_unknown(self):
+        # A template that mentions "tools" but no recognisable output format
+        template = "{% if tools %}You have access to tools.{% endif %}"
+        assert detect_tool_call_format(template) == ToolCallFormat.UNKNOWN
+
+    def test_llama3_takes_priority_over_qwen(self):
+        # If a template somehow has both markers, LLAMA3 wins (checked first)
+        combined = _LLAMA3_TEMPLATE + "<tool_call>...</tool_call>"
+        assert detect_tool_call_format(combined) == ToolCallFormat.LLAMA3
+
+
+class TestModelManagerToolCallFormat:
+    """Tests for ToolCallFormat properties on ModelManager."""
+
+    def test_default_format_is_none(self):
+        mm = ModelManager()
+        assert mm.tool_call_format == ToolCallFormat.NONE
+
+    def test_supports_tool_calling_false_by_default(self):
+        mm = ModelManager()
+        assert mm.supports_tool_calling is False
+
+    def test_supports_tool_calling_true_after_qwen_load(self):
+        mm = ModelManager()
+        mm._tool_call_format = ToolCallFormat.QWEN
+        assert mm.supports_tool_calling is True
+
+    def test_supports_tool_calling_false_for_unknown(self):
+        mm = ModelManager()
+        mm._tool_call_format = ToolCallFormat.UNKNOWN
+        assert mm.supports_tool_calling is False
+
+    @patch("maic.core.model_manager.settings")
+    def test_tool_call_format_for_loaded_model_returns_current(self, mock_settings, tmp_path):
+        mock_settings.models_dir = str(tmp_path)
+        mm = ModelManager()
+        mm._model_id = "org/model"
+        mm._tool_call_format = ToolCallFormat.MISTRAL
+        assert mm.tool_call_format_for("org/model") == ToolCallFormat.MISTRAL
+
+    @patch("maic.core.model_manager.settings")
+    def test_tool_call_format_for_downloaded_model_reads_config(self, mock_settings, tmp_path):
+        mock_settings.models_dir = str(tmp_path)
+        model_dir = tmp_path / "org--other"
+        model_dir.mkdir()
+        import json
+
+        cfg = {"chat_template": _QWEN_TEMPLATE}
+        (model_dir / "tokenizer_config.json").write_text(json.dumps(cfg))
+        mm = ModelManager()
+        mm._model_id = "org/loaded"
+        assert mm.tool_call_format_for("org/other") == ToolCallFormat.QWEN
+
+    @patch("maic.core.model_manager.settings")
+    def test_tool_call_format_for_not_downloaded_model_returns_none(
+        self, mock_settings, tmp_path
+    ):
+        mock_settings.models_dir = str(tmp_path)
+        mm = ModelManager()
+        assert mm.tool_call_format_for("org/nothere") == ToolCallFormat.NONE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Thinking mode detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Abbreviated Qwen3 template snippet — contains 'enable_thinking' variable.
+_QWEN3_TEMPLATE = (
+    "{%- if enable_thinking is defined and enable_thinking %}"
+    "<think>{{thinking_content}}</think>"
+    "{%- endif %}"
+    "{{- content }}"
+)
+# A template that contains the literal <think> token (alternative signal).
+_THINK_TOKEN_TEMPLATE = "{{ bos_token }}<think>{{ content }}</think>"
+
+# Qwen2.5-Coder / plain Qwen template — no thinking markers.
+_QWEN25_TEMPLATE = (
+    "{%- if tools %}\n{{- '<|im_start|>system\\n' }}\n"
+    "{%- for tool in tools %}\n{{- tool | tojson }}\n{%- endfor %}\n"
+    "If you need to call a tool, use <tool_call> JSON </tool_call>\n"
+)
+# Llama-3 template — no thinking markers.
+_LLAMA3_PLAIN_TEMPLATE = (
+    "{% if tools %}<|python_tag|>[{\"name\":\"...\",\"parameters\":{}}]\n"
+    "{% endif %}<|eot_id|>"
+)
+
+
+class TestDetectThinkingSupport:
+    """Tests for the chat-template thinking-mode detector."""
+
+    def test_empty_template_returns_false(self):
+        assert detect_thinking_support("") is False
+
+    def test_none_like_value_returns_false(self):
+        assert detect_thinking_support("  ") is False
+
+    def test_qwen3_enable_thinking_returns_true(self):
+        assert detect_thinking_support(_QWEN3_TEMPLATE) is True
+
+    def test_think_token_in_template_returns_true(self):
+        assert detect_thinking_support(_THINK_TOKEN_TEMPLATE) is True
+
+    def test_qwen25_coder_template_returns_false(self):
+        assert detect_thinking_support(_QWEN25_TEMPLATE) is False
+
+    def test_llama3_template_returns_false(self):
+        assert detect_thinking_support(_LLAMA3_PLAIN_TEMPLATE) is False
+
+    def test_no_tool_template_returns_false(self):
+        plain = "{% for m in messages %}{{ m.content }}{% endfor %}"
+        assert detect_thinking_support(plain) is False
+
+
+class TestModelManagerThinkingSupport:
+    """Tests for the supports_thinking property on ModelManager."""
+
+    def test_default_supports_thinking_is_false(self):
+        mm = ModelManager()
+        assert mm.supports_thinking is False
+
+    def test_supports_thinking_true_when_flag_set(self):
+        mm = ModelManager()
+        mm._supports_thinking = True
+        assert mm.supports_thinking is True
+
+    def test_supports_thinking_false_for_qwen25_template(self):
+        mm = ModelManager()
+        mm._supports_thinking = detect_thinking_support(_QWEN25_TEMPLATE)
+        assert mm.supports_thinking is False
+
+    def test_supports_thinking_true_for_qwen3_template(self):
+        mm = ModelManager()
+        mm._supports_thinking = detect_thinking_support(_QWEN3_TEMPLATE)
+        assert mm.supports_thinking is True

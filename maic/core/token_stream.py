@@ -54,6 +54,7 @@ class TokenStream:
         self._on_complete = on_complete
         self._started_at: float = time.perf_counter()  # Generation start timestamp
         self._finished_at: float | None = None  # Set when generator is exhausted
+        self.prompt_tokens: int = 0  # Set by ModelManager after tokenization
 
     # ─────────────────────────────────────────────────────────────────────────
     # Iterator protocol — allows 'for token in stream:' syntax

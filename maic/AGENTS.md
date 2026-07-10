@@ -1,13 +1,13 @@
 # AGENTS.md (Backend)
 
-Scope: `app/`.
+Scope: `maic/`.
 
 This file overrides root guidance for backend-specific decisions.
 
 ## Canonical Read Order
 
-When working under `app/`, use this order:
-1) `app/AGENTS.md`
+When working under `maic/`, use this order:
+1) `maic/AGENTS.md`
 2) root `AGENTS.md`
 3) `docs/CURRENT/STATUS.md`
 4) `docs/CURRENT/ARCHITECTURE.md`

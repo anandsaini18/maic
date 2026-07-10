@@ -6,6 +6,7 @@ interface Props {
   onLoad: (id: string) => void;
   onDownload: (id: string) => void;
   onDelete: (id: string) => void;
+  onQuantize: (id: string, qBits?: number) => void;
   onClose: () => void;
 }
 
@@ -14,6 +15,7 @@ export default function ModelOption({
   onLoad,
   onDownload,
   onDelete,
+  onQuantize,
   onClose,
 }: Props) {
   const sizeLabel = m.disk_gb
@@ -55,6 +57,17 @@ export default function ModelOption({
           {!m.downloaded && !m.downloading && (
             <ModelTag variant="not-downloaded">not downloaded</ModelTag>
           )}
+          {m.quantizing && (
+            <ModelTag variant="downloading">quantizing</ModelTag>
+          )}
+          {m.quantization_info && (
+            <ModelTag variant="downloaded">{m.quantization_info}</ModelTag>
+          )}
+          {m.tool_calling === true && (
+            <ModelTag variant="downloaded">
+              <span title="Supports tool / function calling">tools</span>
+            </ModelTag>
+          )}
           {m.requires_token && <ModelTag variant="token">token</ModelTag>}
           {!m.feasible && <ModelTag variant="too-large">too large</ModelTag>}
         </div>
@@ -76,6 +89,18 @@ export default function ModelOption({
               >
                 <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>
               </button>
+              {!m.quantization_info && !m.quantizing && (
+                <button
+                  className="px-2 py-1.5 rounded-xs border border-amber-dim text-amber hover:bg-amber-dim active:scale-95 focus-visible:ring-2 focus-visible:ring-amber/40 focus-visible:outline-none transition-all duration-[250ms] ease-spring"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onQuantize(m.id, 4);
+                  }}
+                  title="Quantize (4-bit)"
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v18M3 12h18M7.5 7.5l9 9M16.5 7.5l-9 9" /></svg>
+                </button>
+              )}
               <button
                 className="px-2 py-1.5 rounded-xs border border-red-dim text-red hover:bg-red-dim active:scale-95 focus-visible:ring-2 focus-visible:ring-red/40 focus-visible:outline-none transition-all duration-[250ms] ease-spring"
                 onClick={(e) => {

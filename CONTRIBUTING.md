@@ -23,7 +23,7 @@ This project adheres to the Contributor Covenant Code of Conduct. By participati
 ## Development Workflow
 
 ### Backend Development
-- Make changes in `app/` or `main.py`
+- Make changes in `maic/` or `main.py`
 - Run backend: `just dev`
 - Default server URL: `http://localhost:8000`
 - Run with a specific model:
@@ -125,8 +125,8 @@ Examples:
 
 ### Python
 - Use type hints (project runs mypy in strict mode).
-- Keep route handlers thin; business logic belongs in `app/core`.
-- Keep OpenAI response shaping in `app/adapters`.
+- Keep route handlers thin; business logic belongs in `maic/core`.
+- Keep OpenAI response shaping in `maic/adapters`.
 - Use docstrings for modules, classes, and non-trivial functions.
 
 ### TypeScript/JavaScript

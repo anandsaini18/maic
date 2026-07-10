@@ -104,6 +104,15 @@ class Settings(BaseSettings):
     max_tokens: int = 512
     temperature: float = 0.7
     top_p: float = 0.9
+    # KV cache controls — rotating cache caps memory; quantized cache compresses it.
+    max_kv_size: int | None = None
+    kv_bits: int | None = None
+    kv_group_size: int = 64
+    # Continuous batching — when enabled, uses mlx_lm's BatchGenerator for
+    # concurrent request handling instead of the single-inference semaphore.
+    batch_mode: bool = False
+    batch_prefill_size: int = 8
+    batch_completion_size: int = 32
 
 
 settings = Settings()

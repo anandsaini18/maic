@@ -10,9 +10,64 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+# ── Tool calling ──────────────────────────────────────────────────────────────
+
+
+class FunctionCall(BaseModel):
+    r"""The function name + arguments of a single tool call.
+
+    Args:
+        name (str): The function being invoked.
+        arguments (str): Call arguments as a JSON-encoded string (OpenAI convention).
+    """
+
+    name: str
+    arguments: str = ""
+
+
+class ToolCall(BaseModel):
+    r"""A single tool call emitted by the assistant (OpenAI ``tool_calls`` item).
+
+    Args:
+        id (str): Unique identifier for this call, referenced by the matching tool result.
+        type (str): Always ``"function"``.
+        function (FunctionCall): The function name and JSON-string arguments.
+    """
+
+    id: str
+    type: Literal["function"] = "function"
+    function: FunctionCall
+
+
+class FunctionDefinition(BaseModel):
+    r"""A function the model is allowed to call (the ``function`` of a tool).
+
+    Args:
+        name (str): Function name.
+        description (str, optional): What the function does.
+        parameters (dict, optional): JSON Schema describing the arguments.
+    """
+
+    name: str
+    description: str | None = None
+    parameters: dict[str, Any] | None = None
+
+
+class Tool(BaseModel):
+    r"""A tool the model may use, in OpenAI request format.
+
+    Args:
+        type (str): Always ``"function"``.
+        function (FunctionDefinition): The callable function's signature.
+    """
+
+    type: Literal["function"] = "function"
+    function: FunctionDefinition
+
 
 # ── Request ───────────────────────────────────────────────────────────────────
 
@@ -21,12 +76,19 @@ class Message(BaseModel):
     r"""A single message in a chat conversation.
 
     Args:
-        role (str): The speaker — one of ``"system"``, ``"user"``, or ``"assistant"``.
-        content (str): The text content of the message.
+        role (str): The speaker — ``"system"``, ``"user"``, ``"assistant"``, or ``"tool"``.
+        content (str | list | None): Text content. ``None`` for assistant messages that
+            only carry tool calls; a list when a client sends structured content parts.
+        tool_calls (list[ToolCall], optional): Tool calls requested by the assistant.
+        tool_call_id (str, optional): On ``"tool"`` messages, the call this result answers.
+        name (str, optional): Optional tool/function name on ``"tool"`` messages.
     """
 
-    role: Literal["system", "user", "assistant"]
-    content: str
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str | list[dict[str, Any]] | None = None
+    tool_calls: list[ToolCall] | None = None
+    tool_call_id: str | None = None
+    name: str | None = None
 
 
 class ChatCompletionRequest(BaseModel):
@@ -49,6 +111,8 @@ class ChatCompletionRequest(BaseModel):
     temperature: float | None = None
     top_p: float | None = None
     stream: bool = False
+    tools: list[Tool] | None = None
+    tool_choice: str | dict[str, Any] | None = None
 
 
 # ── Non-streaming Response ────────────────────────────────────────────────────
@@ -82,7 +146,7 @@ class ChatChoice(BaseModel):
 
     index: int = 0
     message: Message
-    finish_reason: Literal["stop", "length"] = "stop"
+    finish_reason: Literal["stop", "length", "tool_calls"] = "stop"
 
 
 class ChatCompletionResponse(BaseModel):
@@ -108,19 +172,45 @@ class ChatCompletionResponse(BaseModel):
 # ── Streaming Response (SSE chunks) ──────────────────────────────────────────
 
 
+class DeltaToolCallFunction(BaseModel):
+    r"""Incremental function name/arguments within a streaming tool-call delta."""
+
+    name: str | None = None
+    arguments: str | None = None
+
+
+class DeltaToolCall(BaseModel):
+    r"""A streaming tool-call delta (OpenAI ``delta.tool_calls`` item).
+
+    Args:
+        index (int): Position of this tool call within the message.
+        id (str, optional): Call id (sent on the first delta for this index).
+        type (str, optional): ``"function"`` (sent on the first delta).
+        function (DeltaToolCallFunction, optional): Name/arguments fragment.
+    """
+
+    index: int
+    id: str | None = None
+    type: Literal["function"] | None = None
+    function: DeltaToolCallFunction | None = None
+
+
 class DeltaMessage(BaseModel):
     r"""Incremental message content within an SSE streaming chunk.
 
-    Either ``role`` (first chunk) or ``content`` (subsequent chunks) is set,
-    never both simultaneously.
+    Carries a role (first chunk), a content fragment (text chunks), or tool-call
+    fragments (tool-call chunks).
 
     Args:
         role (str, optional): Set to ``"assistant"`` in the first chunk only.
         content (str, optional): A token fragment of the generated text.
+        tool_calls (list[DeltaToolCall], optional): Tool-call fragments.
     """
 
     role: Literal["assistant"] | None = None
     content: str | None = None
+    reasoning_content: str | None = None
+    tool_calls: list[DeltaToolCall] | None = None
 
 
 class ChunkChoice(BaseModel):
@@ -135,7 +225,7 @@ class ChunkChoice(BaseModel):
 
     index: int = 0
     delta: DeltaMessage
-    finish_reason: Literal["stop", "length"] | None = None
+    finish_reason: Literal["stop", "length", "tool_calls"] | None = None
 
 
 class ChatCompletionChunk(BaseModel):
@@ -169,11 +259,14 @@ class ModelCard(BaseModel):
         id (str): HuggingFace model identifier.
         object (str): Always ``"model"``.
         owned_by (str): Model owner. Default: ``"local"``.
+        capabilities (dict, optional): Advertised model capabilities, e.g.
+            ``{"tool_calling": True}``.  ``None`` when unknown.
     """
 
     id: str
     object: str = "model"
     owned_by: str = "local"
+    capabilities: dict[str, bool] | None = None
 
 
 class ModelList(BaseModel):
@@ -200,6 +293,8 @@ class SupportedModel(BaseModel):
         min_ram_gb (float): Minimum system RAM required (size / 0.8).
         feasible (bool): ``True`` if the model fits within 80% of available RAM.
         requires_token (bool): ``True`` if the model is gated and needs an HF token.
+        capabilities (dict, optional): Advertised model capabilities, e.g.
+            ``{"tool_calling": True}``.  ``None`` when unknown.
     """
 
     id: str
@@ -207,6 +302,7 @@ class SupportedModel(BaseModel):
     min_ram_gb: float
     feasible: bool
     requires_token: bool
+    capabilities: dict[str, bool] | None = None
 
 
 class SupportedModelList(BaseModel):
@@ -239,6 +335,9 @@ class ModelStatus(BaseModel):
         downloading (bool): ``True`` if a background download is in progress.
         download_error (str, optional): Error message from the last failed download.
         downloads (int): HuggingFace Hub download count.
+        quantizing (bool): ``True`` if a background quantization is in progress.
+        quantization_info (str, optional): Human-readable quantization details
+            (e.g. ``"4bit (g=64)"``), or ``None`` if not quantized.
     """
 
     id: str
@@ -252,6 +351,9 @@ class ModelStatus(BaseModel):
     downloading: bool
     download_error: str | None
     downloads: int
+    quantizing: bool = False
+    quantization_info: str | None = None
+    tool_calling: bool | None = None
 
 
 class ModelsStatusResponse(BaseModel):
